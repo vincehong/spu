@@ -4,6 +4,40 @@
 (`opt B2A with width=1 and add PPML benchmark results`, `duan/codex/spdzwise-3pc`).
 This work is **not** based on `vincehong/spu` `main`.
 
+## SPDZwise RING vs ABY3 exact at ~5 ms
+
+**≤5× vs ABY3 exact does not hold at ~5 ms RTT on 3-process FactoryBrpc.**
+
+ABY3 exact is `b2a(arshift_b(a2b(x), 16))` — the truncation used in the branch
+PPML reports — not ABY3 semi `TruncAPr2`. SPDZwise RING uses default
+`TruncNaive` (same A2B → shift → B2A shape, with MAC/ABFL). `a2b` has no
+exact-trunc variant; that row is SPDZwise A2B vs native ABY3 A2B.
+
+The **~5 ms** column is a dedicated re-run (2026-10-31 12:34 UTC, measured ping
+**5.431 ms**, one-way hold 2.5 ms, 1 warmup + 3 measured). The **~1 ms** column
+is the original sweep (measured ping **1.343 ms**), kept for context. FactoryMem
+is in-process and has no injected RTT.
+
+| kernel | FactoryMem vs exact | BRPC ~1 ms vs exact | **BRPC ~5 ms vs exact (re-run)** | SPDZwise ms @5 ms (min–max) | ABY3 exact ms @5 ms (min–max) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `trunc` 2048 el | 3.46× | 15.13× | **17.52×** | 953.6 (951.5–970.6) | 54.4 (53.9–56.4) |
+| `linear` 128×64 mmul+trunc | 5.12× | 14.23× | **14.69×** | 788.8 (784.0–799.8) | 53.7 (52.2–56.4) |
+| `a2b` 2048 el (vs native ABY3 A2B) | 2.74× | 12.01× | **14.33×** | 354.2 (352.6–354.6) | 24.7 (24.6–25.1) |
+
+Bytes/actions are unchanged from the original sweep (three-party sum, timed
+kernel only): `trunc` 13 040 028 / 867 vs exact 1 441 792 / 52; `linear`
+1 328 466 / 882 vs 93 184 / 55; `a2b` 5 092 032 / 369 vs 688 128 / 24.
+
+The 5 ms re-run matches the first pass (`trunc` 17.56× then, 17.52× now).
+Raising RTT from ~1 ms to ~5 ms does **not** bring SPDZwise within 5× of ABY3
+exact: both sides grow with latency, and SPDZwise still has ~15× more actions
+on `trunc` (867 vs 52), so the ratio stays in the mid-teens. The ≤5×
+exact-trunc budget only appears on **FactoryMem** (`trunc` 3.46×, `linear`
+5.12×), which cannot see injected RTT.
+
+JSON: [`results/vs_aby3_exact.json`](results/vs_aby3_exact.json),
+[`results-5ms-rerun/summary.json`](results-5ms-rerun/summary.json).
+
 ## ≤5× vs ABY3 semi at LAN-like RTT ≲1 ms
 
 **It does not hold.**

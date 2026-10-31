@@ -1,0 +1,6 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3,trunc,brpc,0,0,2048,128,64,8.415000,57344,5
+aby3,trunc,brpc,0,1,2048,128,64,6.249447,57344,5
+aby3,trunc,brpc,0,2,2048,128,64,5.917370,57344,5
+aby3,trunc,brpc,0,3,2048,128,64,5.794511,57344,5
+[2026-10-31 12:34:14.354] [info] [channel.cc:362] send request failed and retry, retry_count=1, max_retry=3, interval_ms=1000, message=[external/yacl~/yacl/link/transport/interconnection_link.cc:56] cntl ErrorCode '1014', http status code '0', response header '', response body '', error msg '[E1014]Got EOF of brpc::Socket{id=0 fd=7 addr=10.10.0.2:61541:53692} (0x560f2de98640)'

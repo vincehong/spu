@@ -13,6 +13,11 @@ python3 run_sweep.py --output results \
   --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
   --rtt-ms 0,0.5,1,2,5,10 --ops trunc,linear,a2b
 python3 summarize.py results/summary.json
+
+# Focused re-run vs ABY3 exact trunc at target ping RTT = 5 ms:
+python3 run_sweep.py --skip-mem --output results-5ms-rerun \
+  --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
+  --rtt-ms 5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
 ```
 
 Three processes always bind `127.0.0.1` or `10.10.0.{1,2,3}` on one host.

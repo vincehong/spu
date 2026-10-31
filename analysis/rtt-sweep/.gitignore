@@ -5,3 +5,8 @@ results/**/*.pid
 results/**/*.stdout
 results/**/harness.stderr
 results/**/harness.stdout
+results-5ms-rerun/**/*.log
+results-5ms-rerun/**/*.pid
+results-5ms-rerun/**/*.stdout
+results-5ms-rerun/**/harness.stderr
+results-5ms-rerun/**/harness.stdout

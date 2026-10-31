@@ -186,6 +186,11 @@ def main():
     )
     parser.add_argument("--skip-mem", action="store_true")
     parser.add_argument("--skip-brpc", action="store_true")
+    parser.add_argument(
+        "--protocols",
+        default="",
+        help="Optional comma-separated protocol filter (spdzwise,aby3,aby3-exact)",
+    )
     args = parser.parse_args()
     rtts = [float(x) for x in args.rtt_ms.split(",") if x.strip()]
     ops = [x.strip() for x in args.ops.split(",") if x.strip()]
@@ -196,6 +201,9 @@ def main():
         "b2a": ["spdzwise", "aby3"],
         "mmul": ["spdzwise", "aby3"],
     }
+    if args.protocols.strip():
+        wanted = {x.strip() for x in args.protocols.split(",") if x.strip()}
+        protocols = {op: [p for p in ps if p in wanted] for op, ps in protocols.items()}
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     summary = {
