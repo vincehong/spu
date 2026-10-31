@@ -1,0 +1,6 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3,trunc,brpc,0,0,2048,128,64,8.255664,57344,5
+aby3,trunc,brpc,0,1,2048,128,64,5.838000,57344,5
+aby3,trunc,brpc,0,2,2048,128,64,6.775000,57344,5
+aby3,trunc,brpc,0,3,2048,128,64,5.749000,57344,5
+[2026-10-31 12:00:39.197] [warning] [channel.h:163] Channel destructor is called before WaitLinkTaskFinish, try stop send thread

@@ -14,16 +14,17 @@
 
 // clang-format off
 // To run the example, start two terminals:
-// > bazel run //examples/cpp:simple_pphlo -- --rank=0
-// > bazel run //examples/cpp:simple_pphlo -- --rank=1
+// > bazel run //examples/cpp:simple_pphlo -c opt -- -rank=0
+// > bazel run //examples/cpp:simple_pphlo -c opt -- -rank=1
+// To run with non-default IP config, add -parties IP:port,IP:port to above commands
 // clang-format on
 
 #include "examples/cpp/utils.h"
-#include "spdlog/spdlog.h"
 
 #include "libspu/device/api.h"
 #include "libspu/device/io.h"
 #include "libspu/device/pphlo/pphlo_executor.h"
+#include "libspu/mpc/factory.h"
 
 // This example demonstrates the basic compute functionality of spu vm.
 void constant_add(spu::SPUContext* sctx) {
@@ -34,10 +35,10 @@ void constant_add(spu::SPUContext* sctx) {
   // - `dbg_print` print the value of `%3`
   constexpr auto code = R"(
 func.func @main() -> () {
-    %0 = "pphlo.constant"() {value = dense<1> : tensor<i32>} : () -> tensor<!pphlo.pub<i32>>
-    %1 = "pphlo.constant"() {value = dense<2> : tensor<i32>} : () -> tensor<!pphlo.pub<i32>>
-    %2 = "pphlo.add"(%0, %1) : (tensor<!pphlo.pub<i32>>, tensor<!pphlo.pub<i32>>) -> tensor<!pphlo.pub<i32>>
-    "pphlo.dbg_print"(%2) : (tensor<!pphlo.pub<i32>>) -> ()
+    %0 = pphlo.constant dense<1> : tensor<i32>
+    %1 = pphlo.constant dense<2> : tensor<i32>
+    %2 = pphlo.add %0, %1 : tensor<i32>
+    pphlo.custom_call @spu.dbg_print (%2) {has_side_effect = true} : (tensor<i32>)->()
     return
 })";
 
@@ -73,9 +74,9 @@ void parameters(spu::SPUContext* sctx) {
   // - `%3` is the product of two values, it will do auto type promotion.
   // - `dbg_print` print the value of `%3`
   constexpr auto code = R"PPHlo(
-func.func @main(%arg0: tensor<!pphlo.sec<f32>>, %arg1: tensor<!pphlo.sec<i32>>) -> () {
-  %0 = "pphlo.multiply"(%arg0, %arg1) : (tensor<!pphlo.sec<f32>>, tensor<!pphlo.sec<i32>>) -> tensor<!pphlo.sec<f32>>
-  "pphlo.dbg_print"(%0) : (tensor<!pphlo.sec<f32>>) -> ()
+func.func @main(%arg0: tensor<!pphlo.secret<f32>>, %arg1: tensor<!pphlo.secret<i32>>) -> () {
+  %0 = pphlo.multiply %arg0, %arg1 : (tensor<!pphlo.secret<f32>>, tensor<!pphlo.secret<i32>>) -> tensor<!pphlo.secret<f32>>
+  pphlo.custom_call @spu.dbg_print (%0) {has_side_effect = true} : (tensor<!pphlo.secret<f32>>)->()
   return
 })PPHlo";
 
@@ -92,6 +93,8 @@ int main(int argc, char** argv) {
   llvm::cl::ParseCommandLineOptions(argc, argv);
 
   auto sctx = MakeSPUContext();
+
+  spu::mpc::Factory::RegisterProtocol(sctx.get(), sctx->lctx());
 
   parameters(sctx.get());
 

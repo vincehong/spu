@@ -13,47 +13,79 @@
 # limitations under the License.
 
 
-from .version import __version__  # type: ignore
-
-from .spu_pb2 import (  # type: ignore
-    DataType,
-    Visibility,
-    PtType,
-    ProtocolKind,
-    FieldType,
-    ShapeProto,
-    RuntimeConfig,
-    ExecutableProto,
-    CompilerOptions
+from . import experimental, psi
+from .api import (
+    Io,
+    Runtime,
+    check_cpu_feature,
+    compile,
+    parse_beaver_type,
+    parse_cheetah_ot_kind,
+    parse_data_type,
+    parse_exp_mode,
+    parse_field_type,
+    parse_log_mode,
+    parse_protocol_kind,
+    parse_sigmoid_mode,
+    parse_sort_method,
+    parse_visibility,
 )
-
-from .api import Io, Runtime, compile
-from .utils import simulation
 from .intrinsic import *
-
-from . import pir
-from . import psi
+from .libspu import (  # type: ignore
+    CompilationSource,
+    CompilerOptions,
+    DataType,
+    Executable,
+    FieldType,
+    ProtocolKind,
+    RuntimeConfig,
+    Shape,
+    SourceIRType,
+    SpdzWiseConfig,
+    ValueChunk,
+    ValueMeta,
+    Visibility,
+    link,
+)
+from .utils import simulation
+from .version import __version__  # type: ignor
 
 __all__ = [
     "__version__",
-    # spu_pb2
+    # libspu
+    "CompilationSource",
+    "CompilerOptions",
     "DataType",
     "Visibility",
-    "PtType",
     "ProtocolKind",
     "FieldType",
-    "ShapeProto",
+    "Shape",
+    "SourceIRType",
+    "ValueChunk",
+    "ValueMeta",
     "RuntimeConfig",
-    "ExecutableProto",
-    "CompilerOptions",
+    "SpdzWiseConfig",
+    "Executable",
+    "link",
     # spu_api
     "Io",
     "Runtime",
     "compile",
+    "parse_beaver_type",
+    "parse_cheetah_ot_kind",
+    "parse_data_type",
+    "parse_exp_mode",
+    "parse_field_type",
+    "parse_log_mode",
+    "parse_protocol_kind",
+    "parse_sigmoid_mode",
+    "parse_sort_method",
+    "parse_visibility",
     # utils
     "simulation",
     # libs
-    "pir",
     "psi",
     # intrinsic
-] + intrinsic.__all__
+]
+
+check_cpu_feature()

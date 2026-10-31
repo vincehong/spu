@@ -1,0 +1,69 @@
+{
+  "note": "YACL sent_actions is a Send() count, not round depth. CSV values are the three-party sum.",
+  "source_tip": "5ca32c7296ecabcab4c69e67ddc89b5be3fe0e5d",
+  "yacl": {
+    "counter": "yacl::link::Statistics::sent_actions",
+    "increments_on": ["Send", "SendAsync", "SendAsyncThrottled"],
+    "chunked_http": "one action per logical Send, not per fragment (http_max_payload_size=1MiB; our AND payloads are <<1MiB)",
+    "not_counted_here": "recv_actions"
+  },
+  "bench": {
+    "file": "src/libspu/mpc/spdzwise/benchmarks/mparty_rtt_bench.cc",
+    "aggregation": "sum of the three parties over the timed kernel (warmup excluded)",
+    "includes_spdzwise_commit": "prepareOutputs + guard.commit sit inside the timer, so ABFL/MAC for a2b is included"
+  },
+  "trunc_2048_fm64": {
+    "spdzwise": {
+      "sent_actions_three_party_sum": 867,
+      "sent_actions_per_party": 289,
+      "sent_bytes_three_party_sum": 13040028,
+      "and_rotate_rounds_critical_path": 189,
+      "and_messages_three_party": 567,
+      "remaining_messages_three_party": 300,
+      "remaining_are": "MAC check, ABFL, Boolean open, AllGather/RequireAll (2 Sends per AllGather in 1 round)",
+      "and_breakdown": {
+        "a2b_csa_AndLayer": 1,
+        "a2b_ripple_bits_1_to_62": 62,
+        "b2a_sliced_mask_same_as_a2b": 63,
+        "b2a_add_xr_bits_0_to_62": 63,
+        "total": 189
+      },
+      "adder": "ripple-carry (not Kogge-Stone); batch 2048 packs into 32 64-bit words so round depth is independent of n"
+    },
+    "aby3_exact": {
+      "sent_actions_three_party_sum": 52,
+      "sent_actions_per_party": "17+17+18 (P2->P0 reveal is 1-sided)",
+      "sent_bytes_three_party_sum": 1441792,
+      "and_rotate_rounds_critical_path": 14,
+      "estimated_total_rounds": 18,
+      "breakdown": {
+        "a2b_rotate": 1,
+        "a2b_kogge_stone_and_rounds": 7,
+        "b2a_rand_rotate": 1,
+        "b2a_kogge_stone_and_rounds": 7,
+        "b2a_reveal_P2_to_P0": 1,
+        "b2a_out_rotate": 1,
+        "action_check": "A2B 3+21=24, B2A 3+21+1+3=28, total 52"
+      },
+      "adder": "ppa_kogge_stone; vmap packs the two ANDs per KS level into one and_bb"
+    },
+    "aby3_semi": {
+      "sent_actions_three_party_sum": 5,
+      "note": "TruncAPr2, not exact trunc"
+    }
+  },
+  "a2b_2048_fm64_spdzwise": {
+    "sent_actions_three_party_sum": 369,
+    "and_messages_three_party": 189,
+    "check_messages_three_party": 180,
+    "note": "a2b() does not verify; prepareOutputs/commit runs ABFL"
+  },
+  "wall_clock_reconciliation": {
+    "round_depth_ratio_and_only": 13.5,
+    "message_count_ratio": 16.673,
+    "factory_mem_vs_exact": 3.46,
+    "brpc_1ms_vs_exact": 15.13,
+    "brpc_1ms_spdzwise_ms_over_ping": 191.4,
+    "interpretation": "BRPC ~1ms spends ~192 ping RTTs, matching ~189 sequential AND rounds. 867 is 3x over-count vs per-party Sends (289) and is not the round count. Ratio 15x is the ripple vs Kogge-Stone gap, not a counter bug."
+  }
+}

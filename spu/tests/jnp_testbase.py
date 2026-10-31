@@ -15,10 +15,11 @@
 
 import collections
 import itertools
-from os import getenv
 from enum import Enum
 from functools import partial
+from os import getenv
 
+import jax.lax as lax
 import jax.numpy as jnp
 import numpy as np
 import numpy.testing as npt
@@ -87,6 +88,10 @@ def rand_default(rng):
     return partial(_rand_dtype, rng)
 
 
+def rand_extra_large(rng):
+    return partial(jtu._rand_dtype, rng.randn, scale=2**30)
+
+
 def rand_not_small_nonzero(rng):
     def post(x):
         x = np.where(x == 0, np.array(1, dtype=x.dtype), x)
@@ -123,6 +128,7 @@ JAX_ONE_TO_ONE_OP_RECORDS = [
     REC("maximum", 2, all_dtypes, all_shapes, rand_default),
     REC("minimum", 2, all_dtypes, all_shapes, rand_default),
     REC("multiply", 2, all_dtypes, all_shapes, rand_default),
+    REC("square", 1, all_dtypes, all_shapes, rand_default),
     REC("negative", 1, number_dtypes, all_shapes, rand_default),
     REC(
         "nextafter",
@@ -138,26 +144,10 @@ JAX_ONE_TO_ONE_OP_RECORDS = [
     REC("array_equiv", 2, number_dtypes, all_shapes, jtu.rand_some_equal),
     REC("reciprocal", 1, float_dtypes, all_shapes, rand_default),
     REC("subtract", 2, number_dtypes, all_shapes, rand_default),
-    REC("signbit", 1, number_dtypes, all_shapes, rand_default),
+    REC("signbit", 1, number_dtypes, all_shapes, rand_extra_large),
     REC("trunc", 1, number_dtypes, all_shapes, rand_default),
-    REC(
-        "sin",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.sine",
-    ),  # FIXME: stablehlo.sine
-    REC(
-        "cos",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.cosine",
-    ),  # FIXME: stablehlo.cosine
+    REC("sin", 1, number_dtypes, all_shapes, rand_default),
+    REC("cos", 1, number_dtypes, all_shapes, rand_default),
     REC(
         "tan",
         1,
@@ -165,55 +155,21 @@ JAX_ONE_TO_ONE_OP_RECORDS = [
         all_shapes,
         partial(jtu.rand_uniform, low=-1.5, high=1.5),
         Status.SysError,
-        "stablehlo.sine",
-    ),  # FIXME: stablehlo.sine
-    REC(
-        "sinh",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.cosine",
-    ),  # FIXME: stablehlo.cosine
+        "stablehlo.tan",
+    ),  # FIXME: stablehlo.tan
+    REC("sinh", 1, number_dtypes, all_shapes, jtu.rand_small),
     REC("cosh", 1, number_dtypes, all_shapes, jtu.rand_small),
     REC("tanh", 1, number_dtypes, all_shapes, jtu.rand_default),
-    REC(
-        "arcsin",
-        1,
-        number_dtypes,
-        all_shapes,
-        jtu.rand_small,
-        Status.SysError,
-        "stablehlo.atan2",
-    ),  # FIXME: stablehlo.atan2
-    REC(
-        "arccos",
-        1,
-        number_dtypes,
-        all_shapes,
-        jtu.rand_small,
-        Status.SysError,
-        "stablehlo.atan2",
-    ),  # FIXME: stablehlo.atan2
-    REC(
-        "arctan",
-        1,
-        number_dtypes,
-        all_shapes,
-        jtu.rand_small,
-        Status.SysError,
-        "stablehlo.atan2",
-    ),  # FIXME: stablehlo.atan2
+    REC("arcsin", 1, number_dtypes, all_shapes, jtu.rand_small),
+    REC("arccos", 1, number_dtypes, all_shapes, jtu.rand_small),
+    REC("arctan", 1, number_dtypes, all_shapes, jtu.rand_small),
     REC(
         "arctan2",
         2,
         float_dtypes,
         all_shapes,
-        jtu.rand_small,
-        Status.SysError,
-        "stablehlo.atan2",
-    ),  # FIXME: stablehlo.atan2
+        rand_default,
+    ),
     REC("arcsinh", 1, number_dtypes, all_shapes, jtu.rand_small),
     REC(
         "arccosh", 1, number_dtypes, all_shapes, rand_default, Status.SysError, "nan"
@@ -231,25 +187,8 @@ JAX_ONE_TO_ONE_OP_RECORDS = [
 
 
 COMPOUND_OP_RECORDS = [
-    REC(
-        "angle",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.atan2",
-    ),  # FIXME: stablehlo.atan2
-    REC(
-        "angle",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.atan2",
-        kwargs={'deg': True},
-    ),  # FIXME: stablehlo.atan2
+    REC("angle", 1, number_dtypes, all_shapes, rand_default),
+    REC("angle", 1, number_dtypes, all_shapes, rand_default, kwargs={'deg': True}),
     REC("atleast_1d", 1, number_dtypes, all_shapes, rand_default),
     REC("atleast_2d", 1, number_dtypes, all_shapes, rand_default),
     REC("atleast_3d", 1, number_dtypes, all_shapes, rand_default),
@@ -309,8 +248,22 @@ COMPOUND_OP_RECORDS = [
         jtu.rand_some_inf_and_nan,
         Status.UnSupport,
     ),  # UnSupport
-    REC("isneginf", 1, float_dtypes, all_shapes, jtu.rand_some_inf_and_nan),
-    REC("isposinf", 1, float_dtypes, all_shapes, jtu.rand_some_inf_and_nan),
+    REC(
+        "isneginf",
+        1,
+        float_dtypes,
+        all_shapes,
+        jtu.rand_some_inf_and_nan,
+        Status.UnSupport,
+    ),  # UnSupport
+    REC(
+        "isposinf",
+        1,
+        float_dtypes,
+        all_shapes,
+        jtu.rand_some_inf_and_nan,
+        Status.UnSupport,
+    ),  # UnSupport
     REC("isreal", 1, number_dtypes, all_shapes, jtu.rand_some_inf),
     REC("isrealobj", 1, number_dtypes, all_shapes, jtu.rand_some_inf),
     REC("log2", 1, number_dtypes, all_shapes, jtu.rand_positive),
@@ -319,7 +272,8 @@ COMPOUND_OP_RECORDS = [
     REC("log1p", 1, number_dtypes, all_shapes, jtu.rand_small_positive),
     REC("logaddexp", 2, float_dtypes, all_shapes, rand_default),
     REC("logaddexp2", 2, float_dtypes, all_shapes, rand_default),
-    REC("polyval", 2, number_dtypes, all_shapes, rand_default),
+    # make polyval's highest degree not too big
+    REC("polyval", 2, number_dtypes, [(3,), (2, 3, 3)], rand_default),
     REC("positive", 1, number_dtypes, all_shapes, rand_default),
     REC("power", 2, number_dtypes, all_shapes, jtu.rand_small_positive),
     REC("rad2deg", 1, float_dtypes, all_shapes, rand_default),
@@ -328,28 +282,12 @@ COMPOUND_OP_RECORDS = [
     REC("remainder", 2, number_dtypes, all_shapes, jtu.rand_small),
     REC("mod", 2, number_dtypes, all_shapes, jtu.rand_nonzero),
     REC("modf", 1, number_dtypes, all_shapes, rand_default),
-    REC(
-        "rint",
-        1,
-        float_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.round_nearest_even",
-    ),  # FIXME: stablehlo.round_nearest_even
+    REC("rint", 1, float_dtypes, all_shapes, rand_default),
     REC("sign", 1, number_dtypes, all_shapes, jtu.rand_default),
     REC(
         "copysign", 2, number_dtypes, all_shapes, rand_default, Status.SysError, "shift"
     ),  # FIXME: shift
-    REC(
-        "sinc",
-        1,
-        number_dtypes,
-        all_shapes,
-        rand_default,
-        Status.SysError,
-        "stablehlo.sine",
-    ),  # FIXME: stablehlo.sine
+    REC("sinc", 1, number_dtypes, all_shapes, rand_default),
     REC("square", 1, number_dtypes, all_shapes, rand_default),
     REC("sqrt", 1, number_dtypes, all_shapes, jtu.rand_positive),
     REC("transpose", 1, all_dtypes, all_shapes, rand_default),
@@ -368,6 +306,7 @@ COMPOUND_OP_RECORDS = [
 ]
 
 BITWISE_OP_RECORDS = [
+    REC("bitwise_count", 1, int_dtypes, all_shapes, jtu.rand_default),
     REC("bitwise_and", 2, int_dtypes, all_shapes, jtu.rand_bool),
     REC("bitwise_not", 1, int_dtypes, all_shapes, jtu.rand_bool),
     REC("invert", 1, int_dtypes, all_shapes, jtu.rand_bool),
@@ -448,6 +387,10 @@ SORT_RECORDS = [
     REC("median", 1, number_dtypes, all_shapes, jtu.rand_some_equal),
 ]
 
+TOPK_RECORDS = [
+    REC("top_k", 1, number_dtypes, all_shapes, rand_default),
+]
+
 
 class JnpTests:
     class JnpTestBase(parameterized.TestCase):
@@ -482,8 +425,8 @@ class JnpTests:
                 spu_out,
                 jnp_out,
                 decimal=1,
-                err_msg="{} faild, spu = {}, jnp = {}, args = {}".format(
-                    name, spu_out, jnp_out, args
+                err_msg="{} failed, spu = {}, jnp = {}, args = {}, pphlo = {}".format(
+                    name, spu_out, jnp_out, args, spu_op.pphlo
                 ),
             )
 
@@ -516,7 +459,9 @@ class JnpTests:
                 spu_out,
                 jnp_out,
                 decimal=1,
-                err_msg="{} faild, spu = {}, jnp = {}".format(name, spu_out, jnp_out),
+                err_msg="{} failed, spu = {}, jnp = {}, args = {}, pphlo = {}".format(
+                    name, spu_out, jnp_out, args, spu_fn.pphlo
+                ),
             )
 
         @parameterized.parameters(
@@ -543,8 +488,8 @@ class JnpTests:
             npt.assert_equal(
                 spu_out,
                 jnp_out,
-                err_msg="{} faild.\nlhs = {},\nspu = {}\njnp = {}".format(
-                    name, *args, spu_out, jnp_out
+                err_msg="{} failed.\nlhs = {},\nspu = {}\njnp = {}\npphlo = {}".format(
+                    name, *args, spu_out, jnp_out, spu_fn.pphlo
                 ),
             )
 
@@ -574,8 +519,8 @@ class JnpTests:
             npt.assert_equal(
                 spu_out,
                 jnp_out,
-                err_msg="{} faild.\nlhs = {}, rhs = {}\nspu = {}\njnp = {}".format(
-                    name, *args, rhs, spu_out, jnp_out
+                err_msg="{} failed.\nlhs = {}, rhs = {}\nspu = {}\njnp = {}\npphlo = {}".format(
+                    name, *args, rhs, spu_out, jnp_out, spu_fn.pphlo
                 ),
             )
 
@@ -590,7 +535,36 @@ class JnpTests:
             npt.assert_equal(
                 spu_out,
                 jnp_out,
-                err_msg="take faild.\nx = {}, indices = {}\nspu = {}\njnp = {}".format(
-                    args[0], args[1], spu_out, jnp_out
+                err_msg="take failed.\nx = {}, indices = {}\nspu = {}\njnp = {}\npphlo = {}".format(
+                    args[0], args[1], spu_out, jnp_out, spu_fn.pphlo
+                ),
+            )
+
+        @parameterized.parameters(
+            (
+                rec.name,
+                rec.status,
+                dtype,
+                shape,
+                rec.rng_factory,
+            )
+            for rec in TOPK_RECORDS
+            for (dtype, shape) in itertools.product(rec.dtypes, rec.shapes)
+        )
+        def test_topk(self, name, status, dtype, shape, rnd_factory):
+            lax_op = getattr(lax, name)
+            jnp_fn = lambda x: lax_op(x, k=2)
+            spu_fn = sim_jax(self._sim, jnp_fn)
+            rnd = rnd_factory(self._rng)
+            args = [rnd(shape, dtype)]
+            jnp_out = jnp_fn(*args)
+            spu_out = spu_fn(*args)
+            # Tie break is not well defined in document, so index might be different between CPU/SPU
+            npt.assert_almost_equal(
+                spu_out[0],
+                jnp_out[0],
+                decimal=3,
+                err_msg="{} failed.\ninput = {},\nspu = {},\njax = {},\npphlo = {}".format(
+                    name, *args, spu_out, jnp_out, spu_fn.pphlo
                 ),
             )

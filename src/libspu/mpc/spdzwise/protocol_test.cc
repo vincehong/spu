@@ -1,0 +1,611 @@
+// Copyright 2026 The SPU Authors. All Rights Reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "libspu/mpc/spdzwise/protocol.h"
+
+#include <cstring>
+
+#include "gtest/gtest.h"
+
+#include "libspu/mpc/api.h"
+#include "libspu/mpc/common/pv2k.h"
+#include "libspu/mpc/spdzwise/arithmetic.h"
+#include "libspu/mpc/spdzwise/io.h"
+#include "libspu/mpc/spdzwise/replicated.h"
+#include "libspu/mpc/spdzwise/state.h"
+#include "libspu/mpc/utils/simulate.h"
+
+namespace spu::mpc::spdzwise {
+namespace {
+
+NdArrayRef Matrix(const Shape& shape, std::initializer_list<int64_t> values) {
+  NdArrayRef result(makeType<RingTy>(FM64), shape);
+  NdArrayView<uint64_t> view(result);
+  size_t i = 0;
+  for (auto x : values) {
+    view[i++] = static_cast<uint64_t>(x);
+  }
+  return result;
+}
+
+RuntimeConfig Config() {
+  RuntimeConfig config;
+  config.protocol = SPDZWISE;
+  config.field = FM64;
+  config.fxp_fraction_bits = 16;
+  return config;
+}
+
+TEST(SpdzWiseProtocol, PublicRandomSharesAgreeAcrossCallsAndExecutions) {
+  for (auto domain : {SpdzWiseConfig::FIELD, SpdzWiseConfig::RING}) {
+    auto config = Config();
+    config.spdzwise_config.domain = domain;
+    const auto results = utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(config, link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      std::vector<Value> draws;
+      for (int run = 0; run < 2; ++run) {
+        ProtocolRunGuard guard(&ctx);
+        state->begin(ExecutableProto("random", {}, {}, ""), {});
+        const auto before = link->GetStats()->sent_bytes.load();
+        EXPECT_EQ(rand_p(&ctx, {0}).numel(), 0);
+        EXPECT_EQ(link->GetStats()->sent_bytes.load(), before);
+        auto first = rand_p(&ctx, {2, 3}).setDtype(DT_U64);
+        auto second = rand_p(&ctx, {2, 3}).setDtype(DT_U64);
+        state->prepareOutputs(&ctx, {"first", "second"}, {first, second});
+        guard.commit();
+        draws.push_back(state->exportedValue("first"));
+        draws.push_back(state->exportedValue("second"));
+      }
+      return draws;
+    });
+    for (size_t draw = 0; draw < 4; ++draw) {
+      for (size_t rank = 1; rank < 3; ++rank) {
+        EXPECT_EQ(results[rank][draw].storage_type(), makeType<Pub2kTy>(FM64));
+        EXPECT_EQ(std::memcmp(results[0][draw].data().data(),
+                              results[rank][draw].data().data(),
+                              6 * sizeof(uint64_t)),
+                  0);
+      }
+      if (draw) {
+        EXPECT_NE(
+            std::memcmp(results[0][draw - 1].data().data(),
+                        results[0][draw].data().data(), 6 * sizeof(uint64_t)),
+            0);
+      }
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, PrssCopiesStayAlignedAcrossOddAndEmptyBatches) {
+  const auto draws = utils::simulate(3, [&](const auto& link) {
+    PrgState prg(link);
+    const auto before = link->GetStats()->sent_bytes.load();
+    std::vector<std::vector<RepShare>> batches;
+    for (size_t size : {0U, 1U, 7U, 1025U}) {
+      batches.push_back(RandomF61Rep(&prg, size));
+    }
+    EXPECT_EQ(link->GetStats()->sent_bytes.load(), before);
+    return batches;
+  });
+  for (size_t batch = 0; batch < draws[0].size(); ++batch) {
+    for (size_t rank = 0; rank < 3; ++rank) {
+      for (size_t i = 0; i < draws[rank][batch].size(); ++i) {
+        EXPECT_LT(draws[rank][batch][i][0], kPrime);
+        EXPECT_LT(draws[rank][batch][i][1], kPrime);
+        EXPECT_EQ(draws[rank][batch][i][1], draws[(rank + 1) % 3][batch][i][0]);
+      }
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, FieldRouteUsesF61MultiplicationAndSharedBooleanKernels) {
+  auto config = Config();
+  config.spdzwise_config.domain = SpdzWiseConfig::FIELD;
+  SpdzWiseIo io(FM64, 3);
+  const auto lhs = io.toShares(Matrix({1}, {kHalfPrime}), VIS_SECRET);
+  const auto rhs = io.toShares(Matrix({1}, {2}), VIS_SECRET);
+  const auto outputs = utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(config, link);
+    registerArithmeticPrototype(&ctx, link);
+    EXPECT_NE(dynamic_cast<field::MulAA*>(ctx.prot()->getKernel("mul_aa")),
+              nullptr);
+    EXPECT_NE(dynamic_cast<field::MulAP*>(ctx.prot()->getKernel("mul_ap")),
+              nullptr);
+    EXPECT_NE(dynamic_cast<field::MatmulAA*>(ctx.prot()->getKernel("mmul_aa")),
+              nullptr);
+    EXPECT_NE(dynamic_cast<field::MatmulAP*>(ctx.prot()->getKernel("mmul_ap")),
+              nullptr);
+    EXPECT_TRUE(ctx.hasKernel("and_bb"));
+    EXPECT_TRUE(ctx.hasKernel("xor_bb"));
+    EXPECT_FALSE(ctx.hasKernel("a2b"));
+    EXPECT_FALSE(ctx.hasKernel("b2a"));
+    auto* state = ctx.prot()->getState<SpdzWiseState>();
+    Value a(lhs[link->Rank()], DT_I64), b(rhs[link->Rank()], DT_I64);
+    ProtocolRunGuard guard(&ctx);
+    state->begin(ExecutableProto("field-route", {"a", "b"}, {"c"}, "test"),
+                 {a, b});
+    a = import_s(&ctx, a);
+    b = import_s(&ctx, b);
+    auto result = dynDispatch(&ctx, "mul_aa", a, b);
+    state->prepareOutputs(&ctx, {"c"}, {result});
+    guard.commit();
+    return state->exportedValue("c").data();
+  });
+  // 2 * ((p - 1) / 2) = p - 1 represents -1 in F61, unlike ring64.
+  EXPECT_EQ(NdArrayView<uint64_t>(io.fromShares(outputs))[0], uint64_t{0} - 1);
+}
+
+TEST(SpdzWiseProtocol, RingRouteHasIndependentArithmeticAndSharedBoolean) {
+  auto config = Config();
+  config.spdzwise_config.domain = SpdzWiseConfig::RING;
+  utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(config, link);
+    EXPECT_ANY_THROW(registerFieldArithmeticPrototype(&ctx, link));
+    registerArithmeticPrototype(&ctx, link);
+    EXPECT_TRUE(ctx.hasKernel("mul_aa"));
+    EXPECT_TRUE(ctx.hasKernel("and_bb"));
+    EXPECT_TRUE(ctx.prot()->hasState(ProtocolSession::kBindName()));
+    EXPECT_EQ(dynamic_cast<field::MulAA*>(ctx.prot()->getKernel("mul_aa")),
+              nullptr);
+    EXPECT_TRUE(ctx.hasKernel("a2b"));
+    EXPECT_TRUE(ctx.hasKernel("b2a"));
+  });
+}
+
+TEST(SpdzWiseProtocol, MultiplicationPayloadAndConstantSizeVerification) {
+  SpdzWiseIo io(FM64, 3);
+  for (int64_t size : {1, 101, 65537}) {
+    NdArrayRef input(makeType<RingTy>(FM64), {size});
+    NdArrayView<uint64_t> plain(input);
+    for (int64_t i = 0; i < size; ++i) {
+      plain[i] = static_cast<uint64_t>(i - 50);
+    }
+    const auto shares = io.toShares(input, VIS_SECRET);
+    const auto outputs = utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(Config(), link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      Value x(shares[link->Rank()], DT_I64);
+      state->begin(ExecutableProto("comm", {"x"}, {"y"}, "test"), {x});
+      x = import_s(&ctx, x);
+      const auto stats = link->GetStats();
+      auto before = stats->sent_bytes.load();
+      Value y(state->multiply(x.data(), x.data()), DT_I64);
+      EXPECT_EQ(stats->sent_bytes.load() - before, 16 * size);
+      before = stats->sent_bytes.load();
+      const auto actions = stats->sent_actions.load();
+      const auto checks = state->arithmeticChecks();
+      state->checkMac();
+      EXPECT_EQ(stats->sent_bytes.load() - before, 64);
+      // One batched dot exchange, two scalar multiplications, and the final
+      // opening's two peer sends. The old separate dots needed six sends.
+      EXPECT_EQ(stats->sent_actions.load() - actions, 5);
+      EXPECT_EQ(state->arithmeticChecks(), checks + 1);
+      state->prepareOutputs(&ctx, {"y"}, {y});
+      state->commit();
+      EXPECT_EQ(state->arithmeticChecks(), checks + 1);
+      return state->exportedValue("y").data();
+    });
+    const auto reconstructed = io.fromShares(outputs);
+    const NdArrayView<uint64_t> actual(reconstructed);
+    for (int64_t i = 0; i < size; ++i) {
+      const auto x = static_cast<int64_t>(plain[i]);
+      EXPECT_EQ(actual[i], static_cast<uint64_t>(x * x));
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, F61WireEncodingRejectsInvalidResiduesAndLengths) {
+  const std::vector<uint64_t> words = {0, 1, kHalfPrime, kPrime - 1};
+  EXPECT_EQ(DecodeF61(EncodeF61(words), words.size()), words);
+  EXPECT_EQ(EncodeF61({1}), std::string("\1\0\0\0\0\0\0\0", 8));
+  EXPECT_ANY_THROW(DecodeF61(EncodeF61({kPrime}), 1));
+  EXPECT_ANY_THROW(DecodeF61("short", 1));
+  EXPECT_TRUE(DecodeF61("", 0).empty());
+}
+
+TEST(SpdzWiseProtocol, SelectiveAndCombinedVerificationCheckpoints) {
+  for (auto domain : {SpdzWiseConfig::FIELD, SpdzWiseConfig::RING}) {
+    auto config = Config();
+    config.spdzwise_config.domain = domain;
+    utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(config, link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      state->begin(ExecutableProto("checkpoints", {}, {}, "test"), {});
+      const auto p = Matrix({1}, {7}).as(makeType<Pub2kTy>(FM64));
+      const auto a = state->publicValue(p), b = state->publicBoolean(p);
+      for (size_t batch = 0; batch < 3; ++batch) {
+        state->multiply(a, a);
+        state->booleanBinary(b, b, true, false);
+        if (batch == 0) {
+          state->checkMac();
+          EXPECT_EQ(state->arithmeticChecks(), 1);
+          EXPECT_EQ(state->booleanChecks(), 0);
+          EXPECT_EQ(state->pendingBooleanBits(), 64);
+        } else if (batch == 1) {
+          state->checkBoolean();
+          EXPECT_EQ(state->arithmeticChecks(), 1);
+          EXPECT_EQ(state->booleanChecks(), 2);
+          EXPECT_EQ(state->pendingBooleanBits(), 0);
+        }
+        state->verify();
+        EXPECT_EQ(state->arithmeticChecks(), batch + 1);
+        EXPECT_EQ(state->booleanChecks(), batch + 1);
+        EXPECT_EQ(state->pendingBooleanBits(), 0);
+        const auto bytes = link->GetStats()->sent_bytes.load();
+        state->verify();
+        EXPECT_EQ(state->arithmeticChecks(), batch + 1);
+        EXPECT_EQ(state->booleanChecks(), batch + 1);
+        // RING retains its collective count agreement even for empty queues.
+        if (domain == SpdzWiseConfig::FIELD) {
+          EXPECT_EQ(link->GetStats()->sent_bytes.load(), bytes);
+        }
+      }
+      state->prepareOutputs(&ctx, {}, {});
+      state->commit();
+    });
+  }
+}
+
+TEST(SpdzWiseProtocol,
+     CheckThresholdFlushesQueuesIndependentlyBeforeOperations) {
+  for (auto domain : {SpdzWiseConfig::FIELD, SpdzWiseConfig::RING}) {
+    auto config = Config();
+    config.spdzwise_config.domain = domain;
+    config.spdzwise_config.check_threshold = 3;
+    const auto outputs = utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(config, link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* s = ctx.prot()->getState<SpdzWiseState>();
+      s->begin(ExecutableProto("threshold", {}, {"a", "b"}, "test"), {});
+      const auto p = Matrix({1, 1}, {7}).as(makeType<Pub2kTy>(FM64));
+      const auto a = s->publicValue(p), b = s->publicBoolean(p);
+      s->multiply(a, a);
+      s->multiply(a, a);
+      s->booleanBinary(b, b, true, false);
+      s->matmul(a, a, false);  // Reaches exactly three arithmetic records.
+      EXPECT_EQ(s->arithmeticChecks(), 0);
+      EXPECT_EQ(s->booleanChecks(), 0);
+      s->booleanBinary(b, b, true, false);  // Flush arithmetic only.
+      EXPECT_EQ(s->arithmeticChecks(), 1);
+      EXPECT_EQ(s->booleanChecks(), 0);
+      EXPECT_EQ(s->pendingBooleanBits(), 128);
+      auto bit_product = s->booleanBinary(b, b, true, false);
+      EXPECT_EQ(s->booleanChecks(), 0);  // Reaches three packed triples.
+      auto product = s->multiply(a, a);  // Flush Boolean only, then append.
+      EXPECT_EQ(s->arithmeticChecks(), 1);
+      EXPECT_EQ(s->booleanChecks(), 1);
+      EXPECT_EQ(s->pendingBooleanBits(), 0);
+      // Finalization must check the one remaining arithmetic record (< 3).
+      s->prepareOutputs(&ctx, {"a", "b"},
+                        {Value(product, DT_I64), Value(bit_product, DT_I64)});
+      s->commit();
+      EXPECT_EQ(s->arithmeticChecks(), 2);
+      EXPECT_EQ(s->booleanChecks(), 1);
+      return std::array<NdArrayRef, 2>{s->exportedValue("a").data(),
+                                       s->exportedValue("b").data()};
+    });
+    SpdzWiseIo io(FM64, 3, domain);
+    for (size_t i = 0; i < 2; ++i) {
+      const auto plain =
+          io.fromShares({outputs[0][i], outputs[1][i], outputs[2][i]});
+      EXPECT_EQ(plain.data<uint64_t>()[0], i == 0 ? 49 : 7);
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, CheckThresholdIsSoftForLargeMultiplyAndMatmul) {
+  for (bool matrix : {false, true}) {
+    auto config = Config();
+    config.spdzwise_config.domain = SpdzWiseConfig::RING;
+    config.spdzwise_config.check_threshold = 2;
+    utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(config, link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* s = ctx.prot()->getState<SpdzWiseState>();
+      s->begin(ExecutableProto("overshoot", {}, {}, "test"), {});
+      const auto a = s->publicValue(
+          Matrix({2, 2}, {1, 2, 3, 4}).as(makeType<Pub2kTy>(FM64)));
+      auto operation = [&] {
+        return matrix ? s->matmul(a, a, false) : s->multiply(a, a);
+      };
+      operation();  // Four new records may exceed the threshold of two.
+      EXPECT_EQ(s->arithmeticChecks(), 0);
+      operation();
+      EXPECT_EQ(s->arithmeticChecks(), 1);
+      s->finalize();
+      EXPECT_EQ(s->arithmeticChecks(), 2);
+      s->prepareOutputs(&ctx, {}, {});
+      s->commit();
+    });
+  }
+}
+
+TEST(SpdzWiseProtocol, CheckThresholdCountsPackedBooleanRecordsIncludingTail) {
+  auto config = Config();
+  config.spdzwise_config.check_threshold = 2;
+  utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(config, link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* s = ctx.prot()->getState<SpdzWiseState>();
+    s->begin(ExecutableProto("packed-threshold", {}, {}, "test"), {});
+    const auto bits = s->randomBoolean({63});
+    s->booleanBinary(bits, bits, true, false);
+    EXPECT_EQ(s->pendingBooleanBits(), 63);
+    s->booleanBinary(bits, bits, true, false);
+    EXPECT_EQ(s->booleanChecks(), 0);  // 63 bits count as one, not 63 records.
+    EXPECT_EQ(s->pendingBooleanBits(), 126);  // Includes a partial second word.
+    s->booleanBinary(bits, bits, true, false);
+    EXPECT_EQ(s->booleanChecks(), 1);
+    EXPECT_EQ(s->pendingBooleanBits(), 63);
+    s->prepareOutputs(&ctx, {}, {});  // No-output finalization still flushes.
+    s->commit();
+    EXPECT_EQ(s->booleanChecks(), 2);
+    EXPECT_EQ(s->pendingBooleanBits(), 0);
+  });
+}
+
+TEST(SpdzWiseProtocol, CheckThresholdMismatchRejectedAtBegin) {
+  utils::simulate(3, [&](const auto& link) {
+    auto config = Config();
+    config.spdzwise_config.check_threshold = link->Rank() == 0 ? 2 : 3;
+    SPUContext ctx(config, link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* s = ctx.prot()->getState<SpdzWiseState>();
+    EXPECT_ANY_THROW(s->begin(ExecutableProto("mismatch", {}, {}, "test"), {}));
+    EXPECT_TRUE(s->failed());
+  });
+}
+
+TEST(SpdzWiseProtocol, PublicAndSpecificPartyRevealRemainClosed) {
+  for (auto domain : {SpdzWiseConfig::FIELD, SpdzWiseConfig::RING}) {
+    auto config = Config();
+    config.spdzwise_config.domain = domain;
+    utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(config, link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      state->begin(ExecutableProto("denied-reveal", {}, {}, "test"), {});
+      const auto p = Matrix({1}, {7}).as(makeType<Pub2kTy>(FM64));
+      const auto a = state->publicValue(p), b = state->publicBoolean(p);
+      const Value product(state->multiply(a, a), DT_I64);
+      const Value bit_product(state->booleanBinary(b, b, true, false), DT_I64);
+      const auto bytes = link->GetStats()->sent_bytes.load();
+      for (const auto* name : {"a2p", "a2v", "s2p", "s2v"}) {
+        EXPECT_ANY_THROW(dynDispatch(&ctx, name, product, size_t{1}));
+      }
+      for (const auto* name : {"b2p", "b2v"}) {
+        EXPECT_ANY_THROW(dynDispatch(&ctx, name, bit_product, size_t{1}));
+      }
+      EXPECT_EQ(link->GetStats()->sent_bytes.load(), bytes);
+      EXPECT_ANY_THROW(state->exportValue(
+          bit_product.data(), makeType<BOutputTy>(link->Rank(), 64, "test")));
+      state->prepareOutputs(&ctx, {}, {});
+      state->commit();
+    });
+  }
+}
+
+TEST(SpdzWiseProtocol, ArithmeticTransactionAndMacFreeExport) {
+  SpdzWiseIo io(FM64, 3);
+  const auto input = Matrix({2, 3}, {-3, -2, -1, 0, 1, 2});
+  const auto shares = io.toShares(input, VIS_SECRET);
+  const auto outputs = utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(Config(), link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* state = ctx.prot()->getState<SpdzWiseState>();
+    Value x(shares[link->Rank()], DT_I64);
+    ProtocolRunGuard guard(&ctx);
+    state->begin(ExecutableProto("arithmetic", {"x"}, {"result"}, "test"), {x});
+    x = import_s(&ctx, x);
+    EXPECT_EQ(x.dtype(), DT_I64);
+    EXPECT_ANY_THROW(x.toProto(1024));
+    auto square = state->multiply(x.data(), x.data());
+    auto result = state->add(square, state->negate(x.data()));
+    EXPECT_ANY_THROW(state->exportedValue("result"));
+    state->prepareOutputs(&ctx, {"result"}, {Value(result, DT_I64)});
+    EXPECT_ANY_THROW(state->exportedValue("result"));
+    guard.commit();
+    EXPECT_GE(state->arithmeticChecks(), 2);
+    const auto output = state->exportedValue("result");
+    EXPECT_EQ(output.elsize(), sizeof(RepShare));
+    EXPECT_NO_THROW(output.toProto(1024));
+    return output.data();
+  });
+  const auto output = io.fromShares(outputs);
+  const NdArrayView<uint64_t> in(input), out(output);
+  for (int64_t i = 0; i < input.numel(); ++i) {
+    const auto x = static_cast<int64_t>(in[i]);
+    EXPECT_EQ(out[i], static_cast<uint64_t>(x * x - x));
+  }
+}
+
+TEST(SpdzWiseProtocol, MatrixProductAndAuthenticatedReuse) {
+  SpdzWiseIo io(FM64, 3);
+  const auto x = io.toShares(Matrix({2, 3}, {-3, -2, -1, 0, 1, 2}), VIS_SECRET);
+  const auto y = io.toShares(Matrix({3, 2}, {1, 2, 3, 4, 5, 6}), VIS_SECRET);
+  const auto outputs = utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(Config(), link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* state = ctx.prot()->getState<SpdzWiseState>();
+    Value a(x[link->Rank()], DT_I64), b(y[link->Rank()], DT_I64), result;
+    {
+      ProtocolRunGuard guard(&ctx);
+      state->begin(ExecutableProto("matrix", {"a", "b"}, {"c"}, "test"),
+                   {a, b});
+      a = import_s(&ctx, a);
+      b = import_s(&ctx, b);
+      result = Value(state->matmul(a.data(), b.data(), false), DT_I64);
+      state->prepareOutputs(&ctx, {"c"}, {result});
+      guard.commit();
+    }
+    const auto checked = state->arithmeticChecks();
+    {
+      ProtocolRunGuard guard(&ctx);
+      state->begin(ExecutableProto("identity", {"c"}, {"d"}, "test"), {result});
+      result = import_s(&ctx, result);
+      state->prepareOutputs(&ctx, {"d"}, {result});
+      guard.commit();
+    }
+    EXPECT_EQ(checked, state->arithmeticChecks());
+    return state->exportedValue("d").data();
+  });
+  const auto output = io.fromShares(outputs);
+  const NdArrayView<uint64_t> out(output);
+  const int64_t expected[] = {-14, -20, 13, 16};
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_EQ(out[i], static_cast<uint64_t>(expected[i]));
+  }
+}
+
+TEST(SpdzWiseProtocol, PublicArithmeticAndShapeViewsPreserveMacs) {
+  SpdzWiseIo io(FM64, 3);
+  const auto shares =
+      io.toShares(Matrix({2, 3}, {-3, -2, -1, 0, 1, 2}), VIS_SECRET);
+  const auto public_shares =
+      io.toShares(Matrix({3, 2}, {-2, -2, -2, -2, -2, -2}), VIS_PUBLIC);
+  const auto outputs = utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(Config(), link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* state = ctx.prot()->getState<SpdzWiseState>();
+    Value x(shares[link->Rank()], DT_I64);
+    Value p(public_shares[link->Rank()], DT_I64);
+    ProtocolRunGuard guard(&ctx);
+    state->begin(ExecutableProto("mixed", {"x", "p"}, {"y"}, "test"), {x, p});
+    x = import_s(&ctx, x);
+    // Exercise the actual registered shape and arithmetic kernels, not just
+    // the state methods. A transpose produces a noncontiguous share view.
+    x = dynDispatch(&ctx, "transpose", x, Axes{1, 0});
+    auto y = dynDispatch(&ctx, "mul_ap", x, p);
+    y = dynDispatch(&ctx, "add_ap", y, p);
+    // A checked multiplication makes misplaced MACs observable.
+    y = dynDispatch(&ctx, "mul_aa", y, y);
+    y.setDtype(DT_I64);
+    state->prepareOutputs(&ctx, {"y"}, {y});
+    guard.commit();
+    return state->exportedValue("y").data();
+  });
+  const auto output = io.fromShares(outputs);
+  const NdArrayView<uint64_t> out(output);
+  const uint64_t expected[] = {16, 4, 4, 16, 0, 36};
+  for (size_t i = 0; i < 6; ++i) {
+    EXPECT_EQ(out[i], expected[i]);
+  }
+}
+
+TEST(SpdzWiseProtocol, CorruptedMacPoisonsSessionForEveryParty) {
+  SpdzWiseIo io(FM64, 3);
+  const auto shares = io.toShares(Matrix({1}, {7}), VIS_SECRET);
+  for (size_t corrupt = 0; corrupt < 3; ++corrupt) {
+    const auto rejected = utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(Config(), link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      bool caught = false;
+      try {
+        ProtocolRunGuard guard(&ctx);
+        Value x(shares[link->Rank()], DT_I64);
+        state->begin(ExecutableProto("fault", {"x"}, {"y"}, "test"), {x});
+        x = import_s(&ctx, x);
+        if (link->Rank() == corrupt) {
+          NdArrayView<AuthShare> view(x.data());
+          view[0][2] = Add(view[0][2], 1);
+        }
+        Value y(state->multiply(x.data(), x.data()), DT_I64);
+        state->prepareOutputs(&ctx, {"y"}, {y});
+        guard.commit();
+      } catch (const std::exception&) {
+        caught = true;
+      }
+      EXPECT_TRUE(state->failed());
+      EXPECT_ANY_THROW(state->exportedValue("y"));
+      EXPECT_ANY_THROW(state->requireHealthy());
+      return caught;
+    });
+    for (bool value : rejected) {
+      EXPECT_TRUE(value);
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, ParallelBatchRejectsMacCorruptionAtDifferentPositions) {
+  // Cross the parallel-reduction threshold with an odd length. Tamper near
+  // the beginning, middle and end, covering different reduction chunks and
+  // all three parties. Imports also exercise a valid large-batch check.
+  constexpr int64_t size = 65537;
+  NdArrayRef input(makeType<RingTy>(FM64), {size});
+  auto* plain = input.data<uint64_t>();
+  for (int64_t i = 0; i < size; ++i) {
+    plain[i] = static_cast<uint64_t>(i + 7);
+  }
+  SpdzWiseIo io(FM64, 3);
+  const auto shares = io.toShares(input, VIS_SECRET);
+  const std::array<int64_t, 3> positions = {0, size / 2, size - 1};
+  for (size_t corrupt = 0; corrupt < 3; ++corrupt) {
+    const auto rejected = utils::simulate(3, [&](const auto& link) {
+      SPUContext ctx(Config(), link);
+      registerArithmeticPrototype(&ctx, link);
+      auto* state = ctx.prot()->getState<SpdzWiseState>();
+      bool caught = false;
+      try {
+        ProtocolRunGuard guard(&ctx);
+        Value x(shares[link->Rank()], DT_I64);
+        state->begin(ExecutableProto("batch-fault", {"x"}, {"y"}, "test"), {x});
+        x = import_s(&ctx, x);
+        if (link->Rank() == corrupt) {
+          auto& mac = x.data().data<AuthShare>()[positions[corrupt]][2];
+          mac = Add(mac, 1);
+        }
+        Value y(state->multiply(x.data(), x.data()), DT_I64);
+        state->prepareOutputs(&ctx, {"y"}, {y});
+        guard.commit();
+      } catch (const std::exception&) {
+        caught = true;
+      }
+      EXPECT_TRUE(state->failed());
+      EXPECT_ANY_THROW(state->exportedValue("y"));
+      return caught;
+    });
+    for (bool value : rejected) {
+      EXPECT_TRUE(value);
+    }
+  }
+}
+
+TEST(SpdzWiseProtocol, RejectsMixedOutputBatchesBeforeAuthentication) {
+  SpdzWiseIo io(FM64, 3);
+  auto shares = io.toShares(Matrix({1}, {7}), VIS_SECRET);
+  for (size_t rank = 0; rank < 3; ++rank) {
+    shares[rank] = shares[rank].as(
+        makeType<OutputTy>(rank, std::string(64, rank == 1 ? 'b' : 'a')));
+  }
+  const auto rejected = utils::simulate(3, [&](const auto& link) {
+    SPUContext ctx(Config(), link);
+    registerArithmeticPrototype(&ctx, link);
+    auto* state = ctx.prot()->getState<SpdzWiseState>();
+    try {
+      state->begin(ExecutableProto("identity", {"x"}, {"y"}, "test"),
+                   {Value(shares[link->Rank()], DT_I64)});
+    } catch (const std::exception&) {
+      return state->failed() && state->arithmeticChecks() == 0;
+    }
+    return false;
+  });
+  for (bool value : rejected) {
+    EXPECT_TRUE(value);
+  }
+}
+
+}  // namespace
+}  // namespace spu::mpc::spdzwise

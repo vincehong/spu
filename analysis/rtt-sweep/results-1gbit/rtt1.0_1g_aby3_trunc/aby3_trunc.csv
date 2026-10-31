@@ -1,0 +1,6 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3,trunc,brpc,0,0,2048,128,64,2.477478,57344,5
+aby3,trunc,brpc,0,1,2048,128,64,1.470000,57344,5
+aby3,trunc,brpc,0,2,2048,128,64,1.492029,57344,5
+[2026-10-31 12:45:54.333] [info] [channel.cc:362] send request failed and retry, retry_count=1, max_retry=3, interval_ms=1000, message=[external/yacl~/yacl/link/transport/interconnection_link.cc:56] cntl ErrorCode '2003', http status code '0', response header '', response body '', error msg '[E2003][79075C4BCFA043EBA49ABDAC28422564][E2003]Server is stopping'
+aby3,trunc,brpc,0,3,2048,128,64,1.374000,57344,5

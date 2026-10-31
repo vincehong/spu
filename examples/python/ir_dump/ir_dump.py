@@ -12,14 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-# Start nodes.
-# > bazel run -c opt //examples/python/utils:nodectl -- up
-#
-# Run this example script.
-# > bazel run -c opt //examples/python/ir_dump:ir_dump
-
-
 import argparse
 import json
 import logging
@@ -28,8 +20,8 @@ import os
 import jax.numpy as jnp
 import numpy as np
 
-import spu.utils.distributed as ppd
-import spu.spu_pb2 as spu_pb2
+import examples.python.utils.distributed as ppd
+import spu.libspu as libspu
 
 logging.basicConfig(level=logging.INFO)
 
@@ -48,7 +40,7 @@ ppd.init(conf["nodes"], conf["devices"])
 dump_path = os.path.join(os.path.expanduser("~"), args.dir)
 logging.info(f"Dump path: {dump_path}")
 # refer to spu.proto for more detailed configuration
-copts = spu_pb2.CompilerOptions()
+copts = libspu.CompilerOptions()
 copts.enable_pretty_print = True
 copts.pretty_print_dump_dir = dump_path
 copts.xla_pp_kind = 2

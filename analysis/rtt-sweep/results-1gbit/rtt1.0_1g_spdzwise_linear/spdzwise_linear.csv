@@ -1,0 +1,5 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+spdzwise,linear,brpc,0,0,2048,128,64,175.282000,1328466,882
+spdzwise,linear,brpc,0,1,2048,128,64,175.506885,1328466,882
+spdzwise,linear,brpc,0,2,2048,128,64,173.926000,1328466,882
+spdzwise,linear,brpc,0,3,2048,128,64,175.341000,1328466,882

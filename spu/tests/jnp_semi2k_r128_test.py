@@ -17,16 +17,30 @@ import unittest
 
 import numpy as np
 
+import spu.libspu as libspu
 import spu.utils.simulation as ppsim
-import spu.spu_pb2 as spu_pb2
 from spu.tests.jnp_testbase import JnpTests
 
 
 class JnpTestSemi2kFM128(JnpTests.JnpTestBase):
     def setUp(self):
         self._sim = ppsim.Simulator.simple(
-            3, spu_pb2.ProtocolKind.SEMI2K, spu_pb2.FieldType.FM128
+            3, libspu.ProtocolKind.SEMI2K, libspu.FieldType.FM128
         )
+        self._rng = np.random.RandomState()
+
+
+class JnpTestSemi2kFM128TwoParty(JnpTests.JnpTestBase):
+    def setUp(self):
+        config = libspu.RuntimeConfig(
+            protocol=libspu.ProtocolKind.SEMI2K, field=libspu.FieldType.FM128
+        )
+        config.experimental_enable_exp_prime = True
+        config.experimental_exp_prime_enable_upper_bound = True
+        config.experimental_exp_prime_offset = 13
+        config.experimental_exp_prime_disable_lower_bound = False
+        config.fxp_exp_mode = libspu.RuntimeConfig.ExpMode.EXP_PRIME
+        self._sim = ppsim.Simulator(2, config)
         self._rng = np.random.RandomState()
 
 

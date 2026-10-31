@@ -3,18 +3,28 @@
 Development
 ===========
 
-This part contains design principles of SPU and staging PSI documentation.
+This part contains design principles of SPU.
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
+   :caption: Design of SPU
 
    basic_concepts
    Pipeline <pipeline>
    Compiler <compiler>
    Runtime <runtime>
    type_system
-   psi
-   psi_protocol_intro
-   pir
-   add_protocols
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Advanced Topics
+
    ir_dump
+   policy_sgd_insight
+   fxp
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Extending SPU
+
+   add_protocols

@@ -3,20 +3,14 @@
 This example demonstrates how to use SPU to run private inference on a pre-trained
 [GPT2](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) model.
 
-1. Install huggingface transformers library
+1. Launch SPU backend runtime
 
     ```sh
-    pip install 'transformers[flax]'
+    uv run examples/python/utils/nodectl.py --config `pwd`/examples/python/ml/flax_gpt2/3pc.json up
     ```
 
-2. Launch SPU backend runtime
+2. Run `flax_gpt2` example
 
     ```sh
-    bazel run -c opt //examples/python/utils:nodectl -- --config `pwd`/examples/python/ml/flax_gpt2/3pc.json up
-    ```
-
-3. Run `flax_gpt2` example
-
-    ```sh
-    bazel run -c opt //examples/python/ml/flax_gpt2 -- --config `pwd`/examples/python/ml/flax_gpt2/3pc.json
+    uv run examples/python/ml/flax_gpt2/flax_gpt2.py --config `pwd`/examples/python/ml/flax_gpt2/3pc.json
     ```

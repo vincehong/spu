@@ -24,7 +24,8 @@ build
 _build
 
 # bazel
-bazel-*
+/bazel-*
+src/bazel-*
 
 # cmake related
 abseil-cpp
@@ -54,3 +55,19 @@ idir/
 
 spu_wheel.name
 *.whl
+
+
+# doc translation files
+docs/**/*.mo
+docs/**/*.pot
+
+# spu/lib*
+spu/lib*.so
+spu/lib*.dylib
+spu/lib*.dll
+
+.pdm-build/
+
+BeaverCache.*
+*.jpg
+*.png

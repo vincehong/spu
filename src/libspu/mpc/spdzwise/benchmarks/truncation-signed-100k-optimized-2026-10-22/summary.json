@@ -1,0 +1,101 @@
+{
+  "aby3": {
+    "iterations": [
+      {
+        "iteration": 1,
+        "total_ms": 7.093816,
+        "material_ms": 0.0,
+        "online_ms": 7.093816,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 2,
+        "total_ms": 8.806009,
+        "material_ms": 0.0,
+        "online_ms": 8.806009,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 3,
+        "total_ms": 8.727978,
+        "material_ms": 0.0,
+        "online_ms": 8.727978,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 4,
+        "total_ms": 13.015567,
+        "material_ms": 0.0,
+        "online_ms": 13.015567,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 5,
+        "total_ms": 11.445731,
+        "material_ms": 0.0,
+        "online_ms": 11.445731,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 6,
+        "total_ms": 8.170228,
+        "material_ms": 0.0,
+        "online_ms": 8.170228,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      },
+      {
+        "iteration": 7,
+        "total_ms": 6.751827,
+        "material_ms": 0.0,
+        "online_ms": 6.751827,
+        "verify_ms": 0.0,
+        "total_sent_bytes": 2800000,
+        "total_verify_bytes": 0
+      }
+    ],
+    "phases": {
+      "total_ms": {
+        "median_ms": 8.727978,
+        "min_ms": 6.751827,
+        "max_ms": 13.015567
+      },
+      "material_ms": {
+        "median_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "online_ms": {
+        "median_ms": 8.727978,
+        "min_ms": 6.751827,
+        "max_ms": 13.015567
+      },
+      "verify_ms": {
+        "median_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      }
+    },
+    "ns_per_element": 87.27978,
+    "elements_per_second": 11457407.431595268,
+    "bytes_per_party": [
+      400000,
+      1200000
+    ],
+    "total_sent_bytes": [
+      2800000
+    ],
+    "validation": "all elements, including warmup; final authentication checks excluded from primary timing"
+  }
+}

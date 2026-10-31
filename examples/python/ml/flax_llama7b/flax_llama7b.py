@@ -12,33 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Start nodes.
-# > bazel run -c opt //examples/python/utils:nodectl -- --config `pwd`/examples/python/ml/flax_llama7b/3pc.json up
-#
-# Run this example script.
-# > bazel run -c opt //examples/python/ml/flax_llama7b:flax_llama
-
 import argparse
 import json
-import jax
-import jax.numpy as jnp
-import jax.nn as jnn
-import flax.linen as nn
-from flax.linen.linear import Array
-from typing import Any, Optional, Tuple, Union
-import torch
-
-from transformers import LlamaTokenizer, LlamaForCausalLM
-from EasyLM.models.llama.llama_model import LLaMAConfig, FlaxLLaMAForCausalLM
-from transformers import AutoTokenizer, FlaxGPT2LMHeadModel, GPT2Config
-
-import spu.utils.distributed as ppd
 from contextlib import contextmanager
-import spu.intrinsic as intrinsic
-import spu.spu_pb2 as spu_pb2
+from typing import Optional, Tuple, Union
+
+import flax.linen as nn
+import jax.nn as jnn
+import jax.numpy as jnp
+from EasyLM.models.llama.llama_model import FlaxLLaMAForCausalLM, LLaMAConfig
+from flax.linen.linear import Array
+from transformers import LlamaTokenizer
+
+import examples.python.utils.distributed as ppd
+import spu.libspu as libspu
 
 parser = argparse.ArgumentParser(description='distributed driver.')
-parser.add_argument("-c", "--config", default="examples/python/ml/flax_llama7b/3pc.json")
+parser.add_argument("-c", "--config", default="examples/python/ml/flax_llama/3pc.json")
+parser.add_argument(
+    "-m", "--model_path", required=True, help="please input the dir-to-flax-llama7b"
+)
 args = parser.parse_args()
 
 with open(args.config, 'r') as file:
@@ -46,34 +39,37 @@ with open(args.config, 'r') as file:
 
 ppd.init(conf["nodes"], conf["devices"])
 
-copts = spu_pb2.CompilerOptions()
+copts = libspu.CompilerOptions()
 copts.enable_pretty_print = False
 copts.xla_pp_kind = 2
 # enable x / broadcast(y) -> x * broadcast(1/y)
 copts.enable_optimize_denominator_with_broadcast = True
 
-model_path = 'openlm-research/open_llama_7b'
+model_path = args.model_path
+
 tokenizer = LlamaTokenizer.from_pretrained(model_path)
-pretrained_model = FlaxLLaMAForCausalLM.from_pretrained(model_path, from_pt=True)
+tokenizer.pad_token_id = tokenizer.eos_token_id
+config = LLaMAConfig()
+pretrained_model = FlaxLLaMAForCausalLM.from_pretrained(model_path, config=config)
 
-def hack_softmax(x: Array,
-            axis: Optional[Union[int, Tuple[int, ...]]] = -1,
-            where: Optional[Array] = None,
-            initial: Optional[Array] = None) -> Array:
 
+def hack_softmax(
+    x: Array,
+    axis: Optional[Union[int, Tuple[int, ...]]] = -1,
+    where: Optional[Array] = None,
+    initial: Optional[Array] = None,
+) -> Array:
     x_max = jnp.max(x, axis, where=where, initial=initial, keepdims=True)
     x = x - x_max
-
     # exp on large negative is clipped to zero
     b = x > -14
-    nexp = jnp.exp(x)
-
+    nexp = jnp.exp(x) * b
     divisor = jnp.sum(nexp, axis, where=where, keepdims=True)
+    return nexp / divisor
 
-    return b * (nexp / divisor)
 
 @contextmanager
-def hack_softmax_context(msg: str, enabled: bool = False):
+def hack_softmax_context(msg: str, enabled: bool = True):
     if not enabled:
         yield
         return
@@ -84,47 +80,58 @@ def hack_softmax_context(msg: str, enabled: bool = False):
     # recover back
     jnn.softmax = raw_softmax
 
-def hack_gelu(x: Array) -> Array:
 
-    b0 = x < -4.0
-    b1 = x < -1.95
-    b2 = x > 3.0
-    b3 = b1 ^ b2 ^ True # x in [-1.95, 3.0]
-    b4 = b0 ^ b1 # x in [-4, -1.95)
-
-    # seg1 = a[3] * x^3 + a[2] * x^2 + a[1] * x + a[0]
-    # seg2 = b[6] * x^6 + b[4] * x^4 + b[2] * x^2 + b[1] * x + b[0]
-    a_coeffs = jnp.array([-0.5054031199708174, -0.42226581151983866, -0.11807612951181953, -0.011034134030615728])
-    b_coeffs = jnp.array([0.008526321541038084,  0.5, 0.3603292692789629, 0.0, -0.037688200365904236, 0.0, 0.0018067462606141187])
+def hack_silu(x: Array) -> Array:
+    b0 = x < -8.0
+    b1 = x < -4.0
+    b2 = x > 4.0
+    b3 = b1 ^ b2 ^ True  # x in [-4.0, 4.0)
+    b4 = b0 ^ b1  # x in [-8.0, -4.0)
+    # seg1 =  a[2] * x^2 + a[1] * x + a[0]
+    # seg2 = b[6] * x^6 + b[4] * x^4 + b[2] * x^2 + b[0]
+    a_coeffs = jnp.array(
+        [-0.3067541139982155, -0.0819767021525476, -0.0055465625580307]
+    )
+    b_coeffs = jnp.array(
+        [
+            0.0085064025895951,
+            0.5,
+            0.2281430841728270,
+            -0.011113046708173,
+            0.0002743776353465,
+        ]
+    )
     x2 = jnp.square(x)
-    x3 = jnp.multiply(x, x2)
     x4 = jnp.square(x2)
-    x6 = jnp.square(x3)
-
-    seg1 = a_coeffs[3] * x3 + a_coeffs[2] * x2 + a_coeffs[1] * x + a_coeffs[0]
-    seg2 = b_coeffs[6] * x6 + b_coeffs[4] * x4 + b_coeffs[2] * x2 + b_coeffs[1] * x + b_coeffs[0]
-
+    x6 = x2 * x4
+    seg1 = a_coeffs[2] * x2 + a_coeffs[1] * x + a_coeffs[0]
+    seg2 = (
+        b_coeffs[4] * x6
+        + b_coeffs[3] * x4
+        + b_coeffs[2] * x2
+        + b_coeffs[1] * x
+        + b_coeffs[0]
+    )
     ret = b2 * x + b4 * seg1 + b3 * seg2
-
     return ret
 
+
 @contextmanager
-def hack_gelu_context(msg: str, enabled: bool = False):
+def hack_silu_context(msg: str, enabled: bool = True):
     if not enabled:
         yield
         return
     # hijack some target functions
-    raw_gelu = jnn.gelu
-    jnn.gelu = hack_gelu
+    raw_silu = nn.silu
+    nn.silu = hack_silu
     yield
     # recover back
-    jnn.gelu = raw_gelu
-
+    nn.silu = raw_silu
 
 
 # greedy search
 # ref: https://huggingface.co/blog/how-to-generate
-def text_generation(input_ids, params, token_num=8):
+def text_generation(input_ids, params, token_num=1):
     config = LLaMAConfig()
     model = FlaxLLaMAForCausalLM(config=config)
     for _ in range(token_num):
@@ -138,28 +145,25 @@ def text_generation(input_ids, params, token_num=8):
 def run_on_cpu():
     # encode context the generation is conditioned on
     inputs_ids = tokenizer.encode(
-        'Hello, my dog is cute and', return_tensors='jax'
-        )
-
+        'Q: What is the largest animal?\nA:', return_tensors='jax'
+    )
     outputs_ids = text_generation(inputs_ids, pretrained_model.params)
     return outputs_ids
 
 
 def run_on_spu():
     # encode context the generation is conditioned on
-    inputs_ids = tokenizer.encode(
-        'Hello, my dog is cute and', return_tensors='jax'
-        )
-
-    # enabled=True, turn on hijacking function; enabled=False, turn off hijacking.
-    with hack_softmax_context("hack exp of softmax", enabled=True), hack_gelu_context("hack gelu", enabled=True):
-        input_ids = ppd.device("P1")(lambda x: x)(inputs_ids)
+    input_ids = tokenizer.encode(
+        'Q: What is the largest animal?\nA:', return_tensors='jax'
+    )
+    with (
+        hack_softmax_context("hack exp of softmax", enabled=True),
+        hack_silu_context("hack silu", enabled=True),
+    ):
         params = ppd.device("P2")(lambda x: x)(pretrained_model.params)
-        outputs_ids = ppd.device("SPU")(
-            text_generation, copts=copts
-            )(input_ids, params)
+        input_ids = ppd.device("P1")(lambda x: x)(input_ids)
+        outputs_ids = ppd.device("SPU")(text_generation, copts=copts)(input_ids, params)
         outputs_ids = ppd.get(outputs_ids)
-
     return outputs_ids
 
 

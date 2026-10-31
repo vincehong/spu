@@ -1,0 +1,7 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3,trunc,brpc,0,0,2048,128,64,2.136583,57344,5
+aby3,trunc,brpc,0,1,2048,128,64,2.012031,57344,5
+aby3,trunc,brpc,0,2,2048,128,64,1.903000,57344,5
+[2026-10-31 11:58:44.057] [info] [channel.cc:362] send request failed and retry, retry_count=1, max_retry=3, interval_ms=1000, message=[external/yacl~/yacl/link/transport/interconnection_link.cc:56] cntl ErrorCode '2003', http status code '0', response header '', response body '', error msg '[E2003][4573F8545B6D4C2B671253D6A382C7F7][E2003]Server is stopping'
+aby3,trunc,brpc,0,3,2048,128,64,1.416000,57344,5
+[2026-10-31 11:58:44.156] [info] [channel.cc:362] send request failed and retry, retry_count=1, max_retry=3, interval_ms=1000, message=[external/yacl~/yacl/link/transport/interconnection_link.cc:56] cntl ErrorCode '112', http status code '0', response header '', response body '', error msg '[E112]Not connected to 10.10.0.3:61542 yet, server_id=1'

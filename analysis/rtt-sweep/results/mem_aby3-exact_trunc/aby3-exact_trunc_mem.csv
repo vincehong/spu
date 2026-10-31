@@ -1,0 +1,5 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3-exact,trunc,mem,0,0,2048,128,64,2.935441,1441792,52
+aby3-exact,trunc,mem,0,1,2048,128,64,2.709716,1441792,52
+aby3-exact,trunc,mem,0,2,2048,128,64,2.552070,1441792,52
+aby3-exact,trunc,mem,0,3,2048,128,64,2.671773,1441792,52

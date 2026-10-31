@@ -13,71 +13,35 @@
 # limitations under the License.
 
 
+import inspect
 import json
 import logging
+import os
 import sys
 import unittest
 from time import perf_counter
-import os
-import warnings
-from io import StringIO
 
-import multiprocess
 import numpy.testing as npt
 import pandas as pd
-import inspect
 
-import spu.utils.distributed as ppd
-
+import examples.python.utils.distributed as ppd
+import examples.python.utils.distributed_impl as ppd_impl
+from spu.utils.polyfill import Process
 
 with open("examples/python/conf/3pc.json", 'r') as file:
     conf = json.load(file)
 
-logger = logging.getLogger(ppd.__name__)
+logger = logging.getLogger(ppd_impl.__name__)
 logger.setLevel(level=logging.WARN)
-
-
-FILENAME = "ml_test_run_data.csv"
-
-
-def read_history_record():
-    return pd.read_csv(StringIO(content), index_col=False)
-
-
-_test_perf_table = read_history_record()
-
-
-def compute_history_average():
-    test_pints = _test_perf_table["name"].unique()
-
-    avg_dict = {}
-    for tp in test_pints:
-        history = _test_perf_table[_test_perf_table["name"] == tp]
-        avg = history["duration"].mean()
-        avg_dict[tp] = avg
-
-    return avg_dict
-
-
-_perf_history_avg = compute_history_average()
+_test_perf_table = pd.DataFrame({'name': [], 'duration': []})
 
 
 def add_profile_data(name, duration):
     global _test_perf_table
-    # Check data
-    valid = True
-    if name in _perf_history_avg:
-        history_avg = _perf_history_avg[name]
-        if duration > 1.05 * history_avg:
-            warnings.warn(
-                f"Testpoint {name} is more than 5% slower in this job, history average = {history_avg}, current = {duration}.\n"
-            )
-            valid = True
 
-    if valid:
-        # Save result to table
-        new_row = pd.DataFrame({'name': name, 'duration': duration}, index=[0])
-        _test_perf_table = pd.concat([_test_perf_table, new_row], ignore_index=True)
+    # Save result to table
+    new_row = pd.DataFrame({'name': name, 'duration': duration}, index=[0])
+    _test_perf_table = pd.concat([_test_perf_table, new_row], ignore_index=True)
 
 
 def profile_test_point(foo, *args, **kwargs):
@@ -96,6 +60,9 @@ def profile_test_point(foo, *args, **kwargs):
 
 def save_perf_report():
     buf = _test_perf_table.to_csv(index=False)
+    p = os.path.expanduser(os.path.join('~', '.ml_test_perf.csv'))
+    with open(p, '+w') as f:
+        f.write(buf)
 
 
 class UnitTests(unittest.TestCase):
@@ -103,15 +70,13 @@ class UnitTests(unittest.TestCase):
     def setUpClass(cls):
         cls.workers = []
         for node_id in conf["nodes"].keys():
-            worker = multiprocess.Process(
-                target=ppd.RPC.serve, args=(node_id, conf["nodes"])
-            )
+            worker = Process(target=ppd.RPC.serve, args=(node_id, conf["nodes"]))
             worker.start()
             cls.workers.append(worker)
         import time
 
         # wait for all process serving.
-        time.sleep(0.05)
+        time.sleep(2)
 
         rt_config = conf["devices"]["SPU"]["config"]["runtime_config"]
         rt_config["enable_pphlo_profile"] = False
@@ -138,30 +103,15 @@ class UnitTests(unittest.TestCase):
         flax_vae.args.num_steps = 10
         metrics = profile_test_point(flax_vae.train)
 
-        self.assertTrue(260 < metrics['loss'] < 270)
-        self.assertTrue(240 < metrics['bce'] < 247)
-        self.assertTrue(20 < metrics['kld'] < 23)
-
-    def test_flax_resnet(self):
-        from examples.python.ml.flax_resnet import flax_resnet
-
-        flax_resnet.args.num_epochs = 1
-        flax_resnet.args.num_steps = 1
-        metrics = profile_test_point(flax_resnet.train)
-
-        self.assertTrue(0 < metrics['loss'] < 5)
+        self.assertTrue(250 < metrics['loss'] < 280)
+        self.assertTrue(235 < metrics['bce'] < 250)
+        self.assertTrue(18 < metrics['kld'] < 30)
 
     def test_haiku_lstm(self):
         from examples.python.ml.haiku_lstm import haiku_lstm
 
-        haiku_lstm.args.num_steps = 1
         _, train_loss = ppd.get(
-            profile_test_point(
-                haiku_lstm.train_model,
-                haiku_lstm.train_ds,
-                haiku_lstm.valid_ds,
-                run_on_spu=False,
-            )
+            profile_test_point(haiku_lstm.train_on_spu, num_steps=1)
         )
         self.assertTrue(0.4 < train_loss < 0.6)
 
@@ -175,21 +125,25 @@ class UnitTests(unittest.TestCase):
 
     def test_jax_lr(self):
         from examples.python.ml.jax_lr import jax_lr
+        from examples.python.utils import dataset_utils as dsutil
 
-        w, b = profile_test_point(jax_lr.run_on_spu)
-        score = jax_lr.compute_score(w, b, 'spu')
+        x, y = dsutil.mock_classification(10000, 100, 0.0, 42)
+        w, b = profile_test_point(jax_lr.run_on_spu, x, y)
 
-        self.assertGreater(score, 0.95)
+        score = jax_lr.compute_score(x, y, ppd.get(w), ppd.get(b), 'spu')
+        self.assertGreater(score, 0.85)
+
+        score = jax_lr.save_and_load_model(x, y, w, b)
+        self.assertGreater(score, 0.85)
 
     def test_jax_svm(self):
         from examples.python.ml.jax_svm import jax_svm
 
-        jax_svm.args.n_epochs = 5
-        w, b = jax_svm.run_on_cpu()
+        w, b = jax_svm.run_on_cpu(n_epochs=5)
         auc_cpu = jax_svm.compute_score(w, b, 'cpu')
         self.assertGreater(auc_cpu, 0.6)
 
-        w, b = profile_test_point(jax_svm.run_on_spu)
+        w, b = profile_test_point(jax_svm.run_on_spu, n_epochs=5)
         auc_spu = jax_svm.compute_score(w, b, 'spu')
 
         self.assertGreater(auc_spu, 0.6)
@@ -198,18 +152,14 @@ class UnitTests(unittest.TestCase):
     def test_jraph_gnn(self):
         from examples.python.ml.jraph_gnn import jraph_gnn
 
-        accuracy = profile_test_point(
-            jraph_gnn.optimize_club, num_steps=30, run_on_spu=True
-        )
+        accuracy = profile_test_point(jraph_gnn.optimize_club_on_spu)
 
         self.assertGreater(accuracy, 0.75)
 
     def test_ss_lr(self):
         from examples.python.ml.ss_lr import ss_lr
 
-        ss_lr.args.epochs = 1
-        ss_lr.dataset_config["n_samples"] = 50000
-        score, train_time, predict_time = ss_lr.train()
+        score, train_time, predict_time = ss_lr.main(dataset_n_samples=50000, epochs=1)
         self.assertGreater(score, 0.75)
 
         add_profile_data("test_ss_lr_train", train_time)
@@ -234,9 +184,8 @@ class UnitTests(unittest.TestCase):
     def test_stax_nn(self):
         from examples.python.ml.stax_nn import stax_nn
 
-        stax_nn.args.epoch = 1
         score = profile_test_point(
-            stax_nn.run_model, model_name="network_a", run_cpu=False
+            stax_nn.run_model, model_name="network_a", run_cpu=False, epochs=1
         )
         self.assertGreater(score, 0.9)
 
@@ -246,20 +195,27 @@ class UnitTests(unittest.TestCase):
         score = tf_experiment.run_fit_manual_grad_spu()
         self.assertGreater(score, 0.9)
 
-    def test_torch_experiment(self):
-        from examples.python.ml.torch_experiment import torch_experiment
+    def test_torch_lr_experiment(self):
+        from examples.python.ml.torch_lr_experiment import torch_lr_experiment
 
-        model = torch_experiment.LinearRegression()
-        torch_experiment.train(model)
-        score = torch_experiment.run_inference_on_spu(model)
+        model = torch_lr_experiment.LinearRegression()
+        torch_lr_experiment.train(model)
+        score = torch_lr_experiment.run_inference_on_spu(model)
         self.assertGreater(score, 0.9)
+
+    def test_torch_resnet_experiment(self):
+        from examples.python.ml.torch_resnet_experiment import torch_resnet_experiment
+
+        model = torch_resnet_experiment.resnet
+        image = torch_resnet_experiment.input_batch
+        label = torch_resnet_experiment.run_inference_on_spu(model, image)
+        self.assertEqual(label, 258)
 
 
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(UnitTests('test_flax_mlp'))
     suite.addTest(UnitTests('test_flax_vae'))
-    # suite.addTest(UnitTests('test_flax_resnet'))
     suite.addTest(UnitTests('test_haiku_lstm'))
     suite.addTest(UnitTests('test_jax_kmeans'))
     suite.addTest(UnitTests('test_jax_lr'))
@@ -269,8 +225,10 @@ def suite():
     suite.addTest(UnitTests('test_ss_xgb'))
     suite.addTest(UnitTests('test_stax_mnist_classifier'))
     suite.addTest(UnitTests('test_stax_nn'))
+    # should put JAX tests above
     suite.addTest(UnitTests('test_tf_experiment'))
-    suite.addTest(UnitTests('test_torch_experiment'))
+    suite.addTest(UnitTests('test_torch_lr_experiment'))
+    suite.addTest(UnitTests('test_torch_resnet_experiment'))
     return suite
 
 

@@ -15,12 +15,13 @@
 # limitations under the License.
 
 
+import argparse
 import json
-import pandas as pd
-import numpy as np
 import os
 from enum import Enum
-import argparse
+
+import numpy as np
+import pandas as pd
 
 g_time_list = [
     ('ns', 1000),
@@ -139,9 +140,9 @@ class TableFromat:
                 df[df[time_col_name] == time_col_value], 'ns'
             )
             unit = get_time_unit(weight, 'ns')
-            formated = self.format_time(df[df[time_col_name] == time_col_value], unit)
-            for i in formated.index:
-                df.loc[i, :] = formated.loc[i, :]
+            formatted = self.format_time(df[df[time_col_name] == time_col_value], unit)
+            for i in formatted.index:
+                df.loc[i, :] = formatted.loc[i, :]
             df[time_col_name].replace(
                 time_col_value,
                 time_col_value + '/' + unit,

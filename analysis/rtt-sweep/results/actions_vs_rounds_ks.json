@@ -1,0 +1,62 @@
+{
+  "note": "YACL sent_actions is a Send() count, not round depth. CSV values are the three-party sum. This file is the Kogge-Stone adder; actions_vs_rounds.json is the previous ripple-carry adder.",
+  "adder": "bit-sliced Kogge-Stone in ring_conversion.cc Add(); MsbCarry unchanged",
+  "trunc_2048_fm64": {
+    "spdzwise": {
+      "sent_actions_three_party_sum": 426,
+      "sent_actions_per_party": 142,
+      "sent_bytes_three_party_sum": 64751388,
+      "and_rotate_rounds_critical_path": 23,
+      "and_messages_three_party": 69,
+      "remaining_messages_three_party": 357,
+      "remaining_are": "MAC check, ABFL (now larger: 1380 vs 188 AND words/block), Boolean open, AllGather/RequireAll",
+      "and_breakdown": {
+        "a2b_csa_AndLayer": 1,
+        "a2b_ks_generate": 1,
+        "a2b_ks_prefix_d_1_2_4_8_16_32": 6,
+        "b2a_sliced_mask_same_as_a2b": 8,
+        "b2a_add_xr_generate": 1,
+        "b2a_add_xr_prefix": 6,
+        "total": 23
+      },
+      "and_words_per_block": {"a2b": 718, "b2a": 1380}
+    },
+    "aby3_exact": {
+      "sent_actions_three_party_sum": 52,
+      "and_rotate_rounds_critical_path": 14,
+      "sent_bytes_three_party_sum": 1441792
+    }
+  },
+  "linear_128x64": {
+    "spdzwise_sent_actions_three_party_sum": 384,
+    "spdzwise_sent_bytes_three_party_sum": 5372802,
+    "aby3_exact_actions": 55,
+    "note": "same TruncNaive AND-round depth as trunc; 128 outputs pad to 2 blocks vs 32, so ABFL bytes are ~16x smaller"
+  },
+  "a2b_2048_fm64_spdzwise": {
+    "sent_actions_three_party_sum": 183,
+    "and_rounds": 8,
+    "and_messages_three_party": 24,
+    "check_messages_three_party": 159,
+    "sent_bytes_three_party_sum": 22060704,
+    "aby3_actions": 24,
+    "aby3_bytes": 688128
+  },
+  "rca_was": {
+    "trunc_actions": 867,
+    "trunc_bytes": 13040028,
+    "trunc_and_rounds": 189,
+    "a2b_actions": 369,
+    "linear_actions": 882
+  },
+  "wall_clock_reconciliation": {
+    "and_round_ratio_vs_aby3_exact": 1.64,
+    "message_count_ratio_trunc": 8.19,
+    "factory_mem_trunc_vs_exact": 15.79,
+    "brpc_1ms_trunc_vs_exact": 25.84,
+    "brpc_1ms_linear_vs_exact": 7.81,
+    "brpc_5ms_linear_vs_exact": 6.25,
+    "brpc_1ms_trunc_ms_over_ping": 388.4,
+    "interpretation": "AND rounds dropped 189->23, but trunc wall-clock at 1ms is ~388 ping RTTs because ABFL + 5x bytes now dominate. linear (2 blocks) is the setting where the round win shows up (14.5x->6.25x). 426 is still a 3-party Send sum, not rounds (142/party)."
+  }
+}

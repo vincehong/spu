@@ -7,11 +7,91 @@
 > - Add `[API]` prefix for API changes
 
 ## staging
->
+
 > please add your unreleased change here.
 
-- [API] Change IO interface, split share into chunk
-- [API] Add intrinsic support
+## 20251208
+
+- [SPU] Initialize development for version 0.10.x
+- [Infra] Bump jax version to 0.8.0, and update the minimum python version to 3.11.
+- [Infra] Bump bazel version to 7.7.1.
+- [Infra] Use uv as package manager.
+- [Feature] Add GroupByAgg kernel in hlo.
+
+## 20250917
+
+- [SPU] 0.9.4 release
+- [SPU] Migrating to Bazel Modules and update minimum Python version to 3.10.
+- [Feature] Add soPRF (LowMC cipher) for SEMI2K
+- [API] Add Permute/InvPermute support in HLO
+- [Feature] Add SSL configuration to the TTP server
+- [Feature] Support quick sort for semi2k and aby3
+
+## 20241219
+
+- [SPU] 0.9.3b0 release
+- [Improvement] Optimize exponential computation for semi2k (**experimental**)
+- [Feature] Add more send/recv actions profiling
+
+## 20240716
+
+- [SPU] 0.9.2b0 release
+- [Feature] Support jax.numpy.bitwise_count
+- [Bugfix] Fix jax.numpy.signbit wrong answer with very large input
+
+## 20240621
+
+- [SPU] 0.9.1b0 release
+- [Feature] Add ORAM based dynamic_slice for ABY3
+- [Feature] Add Atan2Op support
+- [API] Add beaver cache support for semi2k (**experimental**)
+
+## 20240415
+
+- [Feature] Add minimax approximation for log
+- [Feature] Support jax.lax.top_k
+- [Feature] Support round to nearest even
+- [Improvement] Default log approximation to minmax
+- [Improvement] Improve median performance
+
+## 20240306
+
+- [Feature] Support more generic Torch model inference
+- [Improvement] Optimize one-time setup for yacl ot
+- [Improvement] Optimize sort performance
+- [Infra] Python 3.8 is no longer suppoted
+- [Infra] Bump jax minimum version to 0.4.16
+
+## 20240105
+
+- [Feature] Add Odd-Even Merge Sort to replace the bitonic sort
+- [Feature] Add radix sort support for ABY3
+- [Feature] Integrate with secretflow/psi
+- [Feature] Add Linux aarch64 support
+- [Feature] Add equal support for SEMI2K and ABY3
+- [Improvement] Optimize sort memory usage
+- [Improvement] Improve compatibility with latest Jax
+- [Bugfix] Fix compilation cache collision under certain cases
+- [Deprecated] macOS 11.x is no longer supported
+
+## 20231108
+
+- [Bugfix] Fix compatibility with latest Jax
+- [Feature] Improve memory efficiency during encode/decode data
+- [Feature] Add radix sort support for SEMI2K
+- [Feature] Experimental: ABY3 matmul CUDA support
+- [Feature] Experimental: Private support under colocated mode
+- [Feature] Add yacl ot support for Cheetah
+
+## 20230906
+
+- [SPU] 0.5.0 release
+- [API] Update IO interface to support splitting large data into chunks
+- [API] Add intrinsic function support
+- [Feature] Add half type support
+- [Feature] Add PSI progress report
+- [Feature] Add SineOp/CosineOp support
+- [Feature] Add complex support
 
 ## 20230705
 
@@ -154,14 +234,14 @@
 - [SPU] 0.0.6 release
 - [API] Add storage_type/data_type, remove type_data.
 - [Experimental] Log(natural logarithm) is calculated with Pade approximation
-                 instead of Householder's approximation.
+  instead of Householder's approximation.
 - [API] Fix typo, goldschmdit.
 - [Improvement] fxp div, improvement accuracy with normal distributed inputs.
 
 ## 20220325
 
 - [SPU] 0.0.5.1 release
-- [Bugfix] Fix SEMI2K divivsion wrong answer
+- [Bugfix] Fix SEMI2K division wrong answer
 
 ## 20220324
 
@@ -169,7 +249,7 @@
 - [Improvement] Lift Convolution limitations.
 - [Improvement] Optimize maximum/minimum speed, with MPC B2A single bit conversion.
 - [Experimental] Div is calculated with direct goldschmdit method instead of
-                 multiplication of dividend and divisor reciprocal.
+  multiplication of dividend and divisor reciprocal.
 - [API] change RuntimeConfig.enable_op_time_profile to enable_pphlo_profile.
 - [API] change RuntimeConfig.fxp_reciprocal_goldschmdit_iters to fxp_div_goldschmdit_iters.
 
@@ -177,9 +257,9 @@
 
 - [SPU] 0.0.4 release
 - [Feature] add silent ot support for various ot scenarios (chosen/correlated/random
-            messages, chosen/correlated/random choices, 1o2/1oN)
+  messages, chosen/correlated/random choices, 1o2/1oN)
 - [Feature] add non-linear computation protocols based on silent ot (comparison,
-            truncation, b2a, triple, randbit, etc)
+  truncation, b2a, triple, randbit, etc)
 - [Feature] add a 2PC protocol: Cheetah
 - [Improvement] concatenate is a lot faster
 - [API] add RuntimeConfig.enable_op_time_profile to ask SPU to collect timing profiling data
@@ -191,7 +271,7 @@
 - [API] merge (config.proto, executable.proto, types.proto) into single spu.proto.
 - [API] change RuntimeConfig.enable_protocol_trace to enable_action_trace.
 - [API] change RuntimeConfig.fxp_recirptocal_goldschmdit_iters to fxp_reciprocal_goldschmdit_iters.
-- [API] add RuntimConfig.reveal_secret_condition to allow reveal secret control flow condition.
+- [API] add RuntimeConfig.reveal_secret_condition to allow reveal secret control flow condition.
 - [Bugfix] Fixed SEGV when reconstruct from an ABY3 scalar secret
 - [Feature] Left/right shift now properly supports non-scalar inputs
 

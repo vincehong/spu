@@ -1,0 +1,133 @@
+// Copyright 2026 The SPU Authors. All Rights Reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#pragma once
+
+#include "libspu/mpc/common/prg_state.h"
+#include "libspu/mpc/protocol_session.h"
+#include "libspu/mpc/spdzwise/boolean.h"
+#include "libspu/mpc/spdzwise/ring.h"
+#include "libspu/mpc/spdzwise/type.h"
+
+namespace spu::mpc::spdzwise {
+
+// Checked session for separate FIELD/RING arithmetic and shared Boolean
+// kernels. The production factory remains closed.
+class SpdzWiseState final : public ProtocolSession {
+  friend class BasicOpsTestAccess;
+  // The benchmark separates MAC generation from the final batched check.
+  // Normal imports retain their mandatory immediate check.
+  friend class SpdzWiseBenchmarkAccess;
+  friend class BooleanTestAccess;
+  friend class ring::TruncationTestAccess;
+  friend class ring::ConversionTestAccess;
+  friend class ring::MulA1BTestAccess;
+  std::unique_ptr<BooleanState> boolean_;
+  std::unique_ptr<ring::ArithmeticState> ring_;
+  bool isRing() const {
+    return config_.spdzwise_config.domain == SpdzWiseConfig::RING;
+  }
+  std::shared_ptr<yacl::link::Context> link_;
+  RuntimeConfig config_;
+  std::string session_;
+  RepShare key_{};
+  // Independently seeded per-party streams. Key, multiplication masks and
+  // secret checking coefficients never consume each other's PRG material.
+  std::unique_ptr<PrgState> key_prg_, mask_prg_, check_prg_;
+  uint64_t message_ = 0;
+  uint64_t execution_ = 0;
+  uint64_t arithmetic_checks_ = 0;
+  std::vector<AuthShare> pending_;
+  // Last split-3 B2A: material, circuit, verification, opening/linear output.
+  // The one-bit daBit path leaves these zero. Only benchmark friends inspect
+  // these; no secret-dependent metrics are stored.
+  std::array<double, 4> b2a_ms_{};
+  std::array<size_t, 4> b2a_bytes_{};
+  size_t b2a_and_bits_ = 0;
+  NdArrayRef finishB2A(const NdArrayRef& mask, const NdArrayRef& masked);
+  // Last MulA1B: daBit generation, pre-opening verification, masked opening
+  // and linear Bit2A, multiplication. Read only by the benchmark friend.
+  std::array<double, 4> mula1b_ms_{};
+  NdArrayRef bit2a(const NdArrayRef& bit);
+  NdArrayRef finishBit2A(ring::DaBit mask, const NdArrayRef& bit);
+
+  std::string tag(std::string_view operation);
+  std::vector<uint64_t> exchange(const std::vector<uint64_t>& local,
+                                 std::string_view operation);
+  std::vector<RepShare> randomRep(size_t size);
+  std::vector<RepShare> multiplyRaw(const std::vector<RepShare>& x,
+                                    const std::vector<RepShare>& y);
+  void checkCopies(const std::vector<RepShare>& x);
+  uint64_t openRaw(const RepShare& value);
+  void agree(const std::string& descriptor);
+  NdArrayRef authenticateInput(const std::vector<RepShare>& values,
+                               const Shape& shape);
+  // Operation-entry soft limit. Never called by verification internals.
+  void maybeCheck();
+
+ protected:
+  void onBegin(const ExecutableProto& exec,
+               const std::vector<Value>& inputs) override;
+  Type exportType(const std::string& name, const Value& value) const override;
+  void onAbort() noexcept override;
+
+ public:
+  explicit SpdzWiseState(const RuntimeConfig& config,
+                         std::shared_ptr<yacl::link::Context> link);
+  std::unique_ptr<State> fork() override;
+  void validateExternalInput(const Value& value) const override;
+  const std::string& session() const { return session_; }
+  size_t rank() const { return link_->Rank(); }
+  uint64_t arithmeticChecks() const { return arithmetic_checks_; }
+
+  void validateInternal(const NdArrayRef& value) const;
+  NdArrayRef importValue(const NdArrayRef& value);
+  NdArrayRef publicValue(const NdArrayRef& value) const;
+  NdArrayRef add(const NdArrayRef& x, const NdArrayRef& y) const;
+  NdArrayRef negate(const NdArrayRef& x) const;
+  NdArrayRef leftShift(const NdArrayRef& x, const Sizes& bits) const;
+  NdArrayRef randomArithmetic(const Shape& shape);
+  NdArrayRef randomPublic(const Shape& shape);
+  NdArrayRef multiplyPublic(const NdArrayRef& x, const NdArrayRef& y) const;
+  NdArrayRef multiply(const NdArrayRef& x, const NdArrayRef& y);
+  // One-bit mixed multiplication. Final product MAC check remains deferred.
+  NdArrayRef mulA1B(const NdArrayRef& x, const NdArrayRef& bit);
+  NdArrayRef truncPrRandomBit(const NdArrayRef& x, size_t bits, SignType sign);
+  NdArrayRef truncNaive(const NdArrayRef& x, size_t bits, SignType sign);
+  double truncMaterialMs() const {
+    return ring_ ? ring_->truncMaterialMs() : 0;
+  }
+  NdArrayRef matmul(const NdArrayRef& x, const NdArrayRef& y, bool public_rhs);
+  NdArrayRef exportValue(const NdArrayRef& value, const Type& type) const;
+  // Collective checkpoints: all parties must call them in the same order.
+  void checkMac();  // Arithmetic MAC checks only; leaves Boolean work pending.
+  void checkBoolean();
+  void verify();  // Flush both domains before opening dependent secrets.
+  void finalize();
+  // Value-only split-3 RING A2B; AND checks are deferred to finalize().
+  NdArrayRef a2b(const NdArrayRef& in);
+  // One-bit Boolean MSB of the application ring; checks remain deferred.
+  NdArrayRef msbA2B(const NdArrayRef& in);
+  // Zero-extend 1..64 Boolean bits; verify both domains before masked opening.
+  NdArrayRef b2a(const NdArrayRef& in);
+  void validateBoolean(const NdArrayRef& value) const;
+  Type commonBooleanType(const Type& x, const Type& y) const;
+  NdArrayRef randomBoolean(const Shape& shape);
+  NdArrayRef publicBoolean(const NdArrayRef& value) const;
+  NdArrayRef booleanBinary(const NdArrayRef& x, const NdArrayRef& y,
+                           bool is_and, bool public_rhs);
+  size_t pendingBooleanBits() const {
+    return boolean_ ? boolean_->pendingBits() : 0;
+  }
+  uint64_t booleanChecks() const { return boolean_ ? boolean_->checks() : 0; }
+};
+
+}  // namespace spu::mpc::spdzwise

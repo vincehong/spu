@@ -16,6 +16,10 @@
 # See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
 
+# Python version definitions using YAML anchors for reusability
+x-publish-py-versions: &publish-py-versions ["3.11", "3.12"]
+x-dev-py-version: &dev-py-version ["3.11"]
+
 parameters:
   GHA_Action:
     type: string
@@ -27,16 +31,49 @@ parameters:
     type: string
     default: ""
 
+executors:
+  linux_x64_executor: # declares a reusable executor
+    docker:
+      - image: secretflow/release-ci:latest
+    resource_class: large
+    shell: /bin/bash --login -eo pipefail
+  linux_aarch64_executor:
+    docker:
+      - image: secretflow/release-ci-aarch64:latest
+    resource_class: arm.large
+    shell: /bin/bash --login -eo pipefail
+
+commands:
+  build_and_upload:
+    parameters:
+      python_ver:
+        type: string
+    steps:
+      - run:
+          name: Checkout devtools
+          command: git clone https://github.com/secretflow/devtools.git ../devtools
+      - run:
+          name: Setup BuildBuddy Cache
+          command: |
+            ../devtools/bazel_cache_setup.py
+      - run:
+          name: "build package and publish"
+          command: |
+            set +e
+            uv venv --python << parameters.python_ver >>
+            uv sync --group dev
+
+            uv build --wheel
+            ls dist/spu*.whl
+            uv publish dist/spu*.whl --index pypi -u __token__ -p ${PYPI_TWINE_TOKEN}
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
-  macOS_x64_publish:
+  macOS_publish:
     macos:
-      xcode: 14.2
-    environment:
-      HOMEBREW_NO_AUTO_UPDATE: 1
-    resource_class: macos.x86.medium.gen2
+      xcode: 16.2.0
+    resource_class: m4pro.medium
     parameters:
       python_ver:
         type: string
@@ -45,84 +82,36 @@ jobs:
       - run:
           name: "Install homebrew dependencies"
           command: |
-            brew install bazel cmake ninja nasm libomp wget go
-            (cd "/usr/local/Cellar/bazel/5.3.2/libexec/bin" && curl -fLO https://releases.bazel.build/5.4.1/release/bazel-5.4.1-darwin-x86_64 && chmod +x bazel-5.4.1-darwin-x86_64)
-      - run:
-          name: "Install Miniconda"
-          command: |
-            wget https://repo.anaconda.com/miniconda/Miniconda3-py38_22.11.1-1-MacOSX-x86_64.sh -O ~/miniconda.sh
-            bash ~/miniconda.sh -b -p $HOME/miniconda
-            source $HOME/miniconda/bin/activate
-            conda init zsh bash
-      - run:
-          name: "build package and publish"
-          command: |
-            set +e
-            conda create -n build python=<< parameters.python_ver >> -y
-            conda activate build
-
-            sh ./build_wheel_entrypoint.sh
-            python3 -m pip install twine
-            ls dist/*.whl
-
-            python3 -m twine upload -r pypi -u __token__ -p ${PYPI_TWINE_TOKEN} dist/*.whl
-  macOS_arm64_publish:
-    macos:
-      xcode: 14.2
-    environment:
-      HOMEBREW_NO_AUTO_UPDATE: 1
-    resource_class: macos.m1.large.gen1
-    parameters:
-      python_ver:
-        type: string
-    steps:
-      - checkout
-      - run:
-          name: "Install homebrew dependencies"
-          command: |
-            brew install bazel cmake ninja libomp wget go
-            (cd /opt/homebrew/Cellar/bazel/*.*.*/libexec/bin && curl -fLO https://github.com/bazelbuild/bazel/releases/download/5.4.1/bazel-5.4.1-darwin-arm64 && chmod +x bazel-5.4.1-darwin-arm64)
-      - run:
-          name: "Install Miniconda"
-          command: |
-            wget https://repo.anaconda.com/miniconda/Miniconda3-py38_23.1.0-1-MacOSX-arm64.sh -O ~/miniconda.sh
-            bash ~/miniconda.sh -b -p $HOME/miniconda
-            source $HOME/miniconda/bin/activate
-            conda init zsh bash
-      - run:
-          name: "build package and publish"
-          command: |
-            set +e
-            conda create -n build python=<< parameters.python_ver >> -y
-            conda activate build
-
-            sh ./build_wheel_entrypoint.sh
-            python3 -m pip install twine
-            ls dist/*.whl
-
-            python3 -m twine upload -r pypi -u __token__ -p ${PYPI_TWINE_TOKEN} dist/*.whl
+            brew install bazelisk cmake ninja libomp wget uv
+      - build_and_upload:
+          python_ver: <<parameters.python_ver>>
   linux_publish:
-    docker:
-      - image: secretflow/release-ci:latest
-    resource_class: 2xlarge
     parameters:
       python_ver:
         type: string
-    shell: /bin/bash --login -eo pipefail
+      executor:
+        type: string
+    executor: <<parameters.executor>>
     steps:
       - checkout
       - run:
-          name: "build package and publish"
+          name: Install dependencies
           command: |
-            conda update -n base -c defaults conda -y
-            conda create -n build python=<< parameters.python_ver >> -y
-            conda activate build
-
-            sh ./build_wheel_entrypoint.sh
-            python3 -m pip install twine
-            ls dist/*.whl
-
-            python3 -m twine upload -r pypi -u __token__ -p ${PYPI_TWINE_TOKEN} dist/*.whl
+            if [ -x "$(command -v npm)" ]; then
+                npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v dpkg)" ]; then
+                if [ "`uname -m`" == "x86_64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-amd64.deb && dpkg -i bazelisk-amd64.deb
+                elif [ "`uname -m`" == "aarch64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-arm64.deb && dpkg -i bazelisk-arm64.deb
+                fi
+            elif [ -x "$(command -v apt)" ]; then
+                apt install -y npm && npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v yum)" ]; then
+                yum install -y npm && npm install -g @bazel/bazelisk
+            fi
+      - build_and_upload:
+          python_ver: <<parameters.python_ver>>
 
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
@@ -132,24 +121,32 @@ workflows:
       - linux_publish:
           matrix:
             parameters:
-              python_ver: ["3.8", "3.9", "3.10", "3.11"]
-          # This is mandatory to trigger a pipeline when pushing a tag
+              python_ver: *publish-py-versions
+              executor: ["linux_x64_executor", "linux_aarch64_executor"]
           filters:
             tags:
-                only: /.*/
-      - macOS_x64_publish:
+              ignore: /.*dev\d{8}$/
+      - macOS_publish:
           matrix:
             parameters:
-              python_ver: ['3.8', '3.9', '3.10', '3.11']
-          # This is mandatory to trigger a pipeline when pushing a tag
+              python_ver: *publish-py-versions
           filters:
             tags:
-                only: /.*/
-      - macOS_arm64_publish:
+              ignore: /.*dev\d{8}$/
+      - linux_publish:
+          name: linux_dev_publish-<<matrix.executor>>
           matrix:
             parameters:
-              python_ver: ['3.8', '3.9', '3.10', '3.11']
-          # This is mandatory to trigger a pipeline when pushing a tag
+              python_ver: *dev-py-version
+              executor: ["linux_x64_executor", "linux_aarch64_executor"]
           filters:
             tags:
-                only: /.*/
+              only: /.*dev\d{8}$/
+      - macOS_publish:
+          name: macOS_dev_publish
+          matrix:
+            parameters:
+              python_ver: *dev-py-version
+          filters:
+            tags:
+              only: /.*dev\d{8}$/

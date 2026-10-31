@@ -12,15 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import unittest
-
 import jax.numpy as jnp
 import numpy as np
 
+import spu.libspu as libspu
 import spu.utils.simulation as ppsim
-import spu.spu_pb2 as spu_pb2
-import spu.intrinsic as si
 
 if __name__ == "__main__":
     """
@@ -28,15 +24,15 @@ if __name__ == "__main__":
     Please DONT commit it unless it will cause build break.
     """
 
-    sim = ppsim.Simulator.simple(3, spu_pb2.ProtocolKind.ABY3, spu_pb2.FieldType.FM64)
-    copts = spu_pb2.CompilerOptions()
+    sim = ppsim.Simulator.simple(3, libspu.ProtocolKind.ABY3, libspu.FieldType.FM64)
+    copts = libspu.CompilerOptions()
     # Tweak compiler options
     copts.disable_div_sqrt_rewrite = True
 
     x = np.random.randn(3, 4)
-    y = np.random.randn(5, 6)
-    fn = lambda x, y: si.example_binary(x, y)
-    # fn = lambda x, y: jnp.matmul(x, y)
+    y = np.random.randn(4, 5)
+    fn = lambda x, y: jnp.matmul(x, y)
+
     spu_fn = ppsim.sim_jax(sim, fn, copts=copts)
     z = spu_fn(x, y)
 

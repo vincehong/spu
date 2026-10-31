@@ -21,156 +21,150 @@ parameters:
     type: boolean
     default: false
 
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
-jobs:
-  linux_ut:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
+executors:
+  linux_executor: # declares a reusable executor
+    parameters:
+      resource_class:
+        type: string
     docker:
-      - image: secretflow/spu-ci:latest
-    resource_class: 2xlarge
+      - image: secretflow/ubuntu-base-ci:latest
+    resource_class: << parameters.resource_class >>
     shell: /bin/bash --login -eo pipefail
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
+
+commands:
+  build_and_test:
+    parameters:
+      targets:
+        type: string
+        default: "spu/tests"
+      groups:
+        type: string
+        default: "--group dev"
     steps:
       # Kill the whole ci after 1hr
       - run:
           name: Cancel build after set time
           background: true
           command: |
-            sleep 3600
+            sleep 7200
             echo "Canceling workflow as too much time has elapsed"
             curl -X POST --header "Content-Type: application/json" "https://circleci.com/api/v2/workflow/${CIRCLE_WORKFLOW_ID}/cancel?circle-token=${BUILD_TIMER_TOKEN}"
-      - checkout
-      - restore_cache:
-          name: "Restore pip cache"
-          key: &pip-cache pip-{{ checksum "requirements.txt" }}-{{ checksum "requirements-dev.txt" }}
-      - restore_cache:
-          name: "Restore build cache"
-          key: spu-build-comp-{{ arch }}-
       - run:
           name: Checkout devtools
-          command: git clone https://github.com/secretflow/devtools.git
+          command: git clone https://github.com/secretflow/devtools.git ../devtools
       - run:
-          name: Decompress cache
-          command: sh devtools/decompress-build-cache.sh spu_build_cache
-      - run:
-          name: "Install dependencies"
+          name: Setup BuildBuddy Cache
           command: |
-            python3 -m pip install -U pip
-            python3 -m pip install -r requirements.txt
-            sed -i "s/tensorflow /tensorflow-cpu /g" ./requirements-dev.txt
-            python3 -m pip install -r requirements-dev.txt
+            ../devtools/bazel_cache_setup.py
+            pushd src
+            ../../devtools/bazel_cache_setup.py
+            popd
       - run:
           name: "build"
-          command: bazel build //... -c opt --ui_event_filters=-info,-debug,-warning --disk_cache=~/.cache/spu_build_cache
+          command: |
+            set +e
+
+            bazelisk build //... -c opt --@rules_python//python/config_settings:python_version=3.11 --ui_event_filters=-info,-debug,-warning;
+            cp bazel-bin/spu/*.so spu/
       - run:
           name: "test"
           command: |
             set +e
-            declare -i test_status
-            bazel test //... -c opt --ui_event_filters=-info,-debug,-warning --test_output=errors --disk_cache=~/.cache/spu_build_cache | tee test_result.log; test_status=${PIPESTATUS[0]}
+            uv venv --python 3.11
+            uv sync << parameters.groups >>
+            uv pip install -e .
+            uv run pytest -v -x --capture=no << parameters.targets >>
 
-            sh devtools/rename-junit-xml.sh
-            find bazel-bin/ -executable -type f -name "*_test"  -print0 | xargs -0 tar -cvzf test_binary.tar.gz
-            find bazel-testlogs/ -type f -name "test.log"  -print0 | xargs -0 tar -cvzf test_logs.tar.gz
-
-            exit ${test_status}
-      - save_cache:
-          key: *pip-cache
-          paths:
-            - /usr/local/lib64/python3.8/site-packages
-      - run:
-          name: Cleanup and compress cache
-          command: |
-            sh devtools/clean_disk_cache.sh ~/.cache/spu_build_cache
-            sh devtools/compress-build-cache.sh spu_build_cache
-          when: always
-      - save_cache:
-          key: spu-build-comp-{{ arch }}-{{ .Environment.CIRCLE_BUILD_NUM }}
-          paths:
-            - /root/.cache/spu_build_cache.tar.gz
-          when: always
-      - store_test_results:
-          path: test-results
-      - store_artifacts:
-          path: test_binary.tar.gz
-      - store_artifacts:
-          path: test_logs.tar.gz
-  macOS_ut:
-    macos:
-      xcode: 14.2
-    environment:
-      HOMEBREW_NO_AUTO_UPDATE: 1
-    resource_class: macos.m1.large.gen1
+# Define a job to be invoked later in a workflow.
+# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
+jobs:
+  linux_ut:
+    parameters:
+      resource_class:
+        type: string
+    executor:
+      name: linux_executor
+      resource_class: << parameters.resource_class >>
+    # Add steps to the job
+    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
-      - when:
-            condition:
-              equal: [ main, << pipeline.git.branch >> ]
-            steps:
-              - restore_cache:
-                  name: "Restore build cache"
-                  key: spu-build-comp-{{ arch }}-
-              - run:
-                  name: Checkout devtools
-                  command: git clone https://github.com/secretflow/devtools.git
-              - run:
-                  name: Decompress cache
-                  command: sh devtools/decompress-build-cache.sh spu_build_cache
-              - run:
-                  name: "Install homebrew dependencies"
-                  command: |
-                    brew install bazel cmake ninja libomp wget go md5sha1sum
-                    (cd /opt/homebrew/Cellar/bazel/*.*.*/libexec/bin && curl -fLO https://github.com/bazelbuild/bazel/releases/download/5.4.1/bazel-5.4.1-darwin-arm64 && chmod +x bazel-5.4.1-darwin-arm64)
-              - run:
-                  name: "Install Miniconda"
-                  command: |
-                    wget https://repo.anaconda.com/miniconda/Miniconda3-py38_23.1.0-1-MacOSX-arm64.sh -O ~/miniconda.sh
-                    bash ~/miniconda.sh -b -p $HOME/miniconda
-                    source $HOME/miniconda/bin/activate
-                    conda init bash zsh
-                    pip install -r requirements.txt
-                    pip install -r requirements-dev.txt
-              - run:
-                  name: "build"
-                  command: bazel build //... -c opt --ui_event_filters=-info,-debug,-warning --disk_cache=~/.cache/spu_build_cache
-              - run:
-                  name: "test"
-                  command: |
-                    set +e
-                    declare -i test_status
-                    bazel test //... -c opt --ui_event_filters=-info,-debug,-warning --test_output=errors --disk_cache=~/.cache/spu_build_cache | tee test_result.log; test_status=${PIPESTATUS[0]}
-
-                    sh devtools/rename-junit-xml.sh
-                    find bazel-bin/ -perm +111 -type f -name "*_test"  -print0 | xargs -0 tar -cvzf test_binary.tar.gz
-                    find bazel-testlogs/ -type f -name "test.log"  -print0 | xargs -0 tar -cvzf test_logs.tar.gz
-
-                    exit ${test_status}
-              - run:
-                  name: Cleanup and compress cache
-                  command: |
-                    sh devtools/clean_disk_cache.sh ~/.cache/spu_build_cache
-                    sh devtools/compress-build-cache.sh spu_build_cache
-                  when: always
-              - save_cache:
-                  key: spu-build-comp-{{ arch }}-{{ .Environment.CIRCLE_BUILD_NUM }}
-                  paths:
-                    - ~/.cache/spu_build_cache.tar.gz
-                  when: always
-              - store_test_results:
-                  path: test-results
-              - store_artifacts:
-                  path: test_binary.tar.gz
-              - store_artifacts:
-                  path: test_logs.tar.gz
-
+      - run:
+          name: Install dependencies
+          command: |
+            if [ -x "$(command -v npm)" ]; then
+                npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v dpkg)" ]; then
+                if [ "`uname -m`" == "x86_64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-amd64.deb && dpkg -i bazelisk-amd64.deb
+                elif [ "`uname -m`" == "aarch64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-arm64.deb && dpkg -i bazelisk-arm64.deb
+                fi
+            elif [ -x "$(command -v apt)" ]; then
+                apt install -y npm && npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v yum)" ]; then
+                yum install -y npm && npm install -g @bazel/bazelisk
+            fi
+      - build_and_test
+  linux_ml_ut:
+    executor:
+      name: linux_executor
+      resource_class: 2xlarge+
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            if [ -x "$(command -v npm)" ]; then
+                npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v dpkg)" ]; then
+                if [ "`uname -m`" == "x86_64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-amd64.deb && dpkg -i bazelisk-amd64.deb
+                elif [ "`uname -m`" == "aarch64" ]; then
+                    wget https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-arm64.deb && dpkg -i bazelisk-arm64.deb
+                fi
+            elif [ -x "$(command -v apt)" ]; then
+                apt install -y npm && npm install -g @bazel/bazelisk
+            elif [ -x "$(command -v yum)" ]; then
+                yum install -y npm && npm install -g @bazel/bazelisk
+            fi
+      - run:
+          name: Install extra deps
+          command: |
+            python3 -m pip install tzdata
+      - build_and_test:
+          targets: examples/python/ml/ml_test.py
+          groups: --group dev --group examples
+  macOS_ut:
+    macos:
+      xcode: 16.2.0
+    resource_class: m4pro.medium
+    steps:
+      - checkout
+      - run:
+          name: "Install homebrew dependencies"
+          command: brew install bazelisk cmake ninja libomp wget md5sha1sum
+      - run:
+          name: "install uv"
+          command: |
+            wget -qO- https://astral.sh/uv/install.sh | sh
+      - build_and_test
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
   unittest:
     when: << pipeline.parameters.build-and-run >>
     jobs:
-      - linux_ut
+      - linux_ut:
+          name: linux_ut-<<matrix.resource_class>>
+          matrix:
+            parameters:
+              resource_class: ["2xlarge+", "arm.2xlarge"]
+      - linux_ml_ut:
+          requires:
+            - linux_ut-2xlarge+
+          filters:
+            branches:
+              only:
+                - main
       - macOS_ut

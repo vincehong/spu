@@ -1,0 +1,125 @@
+# Copyright 2024 Ant Group Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+###############################################################################
+# Bazel now uses Bzlmod by default to manage external dependencies.
+# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
+#
+# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
+###############################################################################
+
+"""
+Secure Processing Unit
+"""
+
+module(
+    name = "spu",
+    version = "0.10.0.dev20261013",
+    compatibility_level = 1,
+)
+
+bazel_dep(name = "apple_support", version = "1.24.5")
+bazel_dep(name = "spulib")
+local_path_override(
+    module_name = "spulib",
+    path = "src",
+)
+
+bazel_dep(name = "psi", version = "0.6.0.dev260105")
+bazel_dep(name = "yacl", version = "0.4.5b13-nightly-20261013")
+
+# NOTE: override heu imported by psi, when psi updates heu version, this can be removed
+bazel_dep(name = "heu", version = "0.6.0b1")
+bazel_dep(name = "grpc", version = "1.74.1")
+single_version_override(
+    module_name = "grpc",
+    patch_strip = 1,
+    patches = ["//bazel/patches:grpc.patch"],
+    version = "1.74.1",
+)
+
+bazel_dep(name = "pybind11_bazel", version = "3.0.0")
+bazel_dep(name = "protobuf", version = "32.1")
+bazel_dep(name = "rules_cuda", version = "0.2.5")
+bazel_dep(name = "rules_python", version = "1.2.0")
+bazel_dep(name = "openssl", version = "3.3.2.bcr.1")
+single_version_override(
+    module_name = "openssl",
+    version = "3.3.2.bcr.1",
+)
+
+bazel_dep(name = "boringssl", version = "0.20250818.0")
+
+# override boringssl with openssl
+archive_override(
+    module_name = "boringssl",
+    integrity = "sha256-vtuxaVVVX5mxp7G6kPyXh560ECUIG+NZ7Nap/L3xyNI=",
+    patch_strip = 0,
+    patches = [
+        # Note: the openssl-build-file.patch copied from https://github.com/secretflow/bazel-registry/tree/main/modules/openssl/3.3.2.bcr.1/patches
+        "//bazel/patches:openssl-build-file.patch",
+        "//bazel/patches:openssl-module-file.patch",
+    ],
+    strip_prefix = "openssl-openssl-3.3.2",
+    urls = ["https://github.com/openssl/openssl/archive/refs/tags/openssl-3.3.2.tar.gz"],
+)
+
+# override orc and curl version
+bazel_dep(name = "orc", version = "2.2.1")
+bazel_dep(name = "curl", version = "8.11.0.bcr.2")
+
+# For experimental/squirrel and examples/cpp
+bazel_dep(name = "eigen", version = "3.4.90-20230801-66e8f3")
+bazel_dep(name = "seal", version = "4.1.1")
+bazel_dep(name = "spdlog", version = "1.14.1")
+bazel_dep(name = "abseil-cpp", version = "20240722.0")
+bazel_dep(name = "llvm-raw", version = "20251010.0-3a6b818")
+
+llvm = use_extension("@llvm-raw//utils/bazel:extension.bzl", "llvm")
+llvm.configure(
+    targets = [
+        "AArch64",
+        "X86",
+        "ARM",
+    ],
+)
+use_repo(llvm, "llvm-project")
+# END for experimental/squirrel and examples/cpp
+
+DEFAULT_PYTHON_VERSION = "3.11"
+
+SUPPORTED_PYTHON_VERSIONS = [
+    # "3.9",
+    # "3.10",
+    "3.11",
+    "3.12",
+]
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+
+[
+    python.toolchain(
+        ignore_root_user_error = True,
+        is_default = python_version == DEFAULT_PYTHON_VERSION,
+        python_version = python_version,
+    )
+    for python_version in SUPPORTED_PYTHON_VERSIONS
+]
+
+use_repo(python, "python_versions")
+
+bazel_dep(name = "rules_proto_grpc_python", version = "5.0.0")
+
+# test
+bazel_dep(name = "googletest", version = "1.15.2", dev_dependency = True)

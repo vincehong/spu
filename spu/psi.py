@@ -14,64 +14,113 @@
 
 from __future__ import annotations
 
-from typing import List
-
-from .psi_pb2 import (  # type: ignore
-    BucketPsiConfig,
-    CurveType,
+from .libpsi import (  # type: ignore
+    CheckpointConfig,
+    DpParams,
+    EcdhParams,
+    EllipticCurveType,
     InputParams,
-    MemoryPsiConfig,
     OutputParams,
-    PsiResultReport,
-    PsiType,
+    ProgressData,
+    ProgressParams,
+    PsiExecuteConfig,
+    PsiExecuteReport,
+    PsiProtocol,
+    PsiProtocolConfig,
+    ResultJoinConfig,
+    ResultJoinType,
+    Rr22Rarams,
+    SourceType,
+    UbPsiExecuteConfig,
+    UbPsiMode,
+    UbPsiRole,
+    UbPsiServerParams,
+    psi_execute,
+    ub_psi_execute,
 )
 
-from . import libspu  # type: ignore
+
+def parse_protocol(v: str) -> PsiProtocol:
+    match v:
+        case "PROTOCOL_ECDH":
+            return PsiProtocol.PROTOCOL_ECDH
+        case "PROTOCOL_KKRT":
+            return PsiProtocol.PROTOCOL_KKRT
+        case "PROTOCOL_RR22":
+            return PsiProtocol.PROTOCOL_RR22
+        case "PROTOCOL_ECDH_3PC":
+            return PsiProtocol.PROTOCOL_ECDH_3PC
+        case "PROTOCOL_ECDH_NPC":
+            return PsiProtocol.PROTOCOL_ECDH_NPC
+        case "PROTOCOL_KKRT_NPC":
+            return PsiProtocol.PROTOCOL_KKRT_NPC
+        case "PROTOCOL_DP":
+            return PsiProtocol.PROTOCOL_DP
+        case _:
+            return PsiProtocol.PROTOCOL_UNSPECIFIED
 
 
-def mem_psi(
-    link: libspu.link.Context, config: MemoryPsiConfig, input_items: List[str]
-) -> List[str]:
-    return libspu.libs.mem_psi(link, config.SerializeToString(), input_items)
+def parse_curve_type(v: str) -> EllipticCurveType:
+    match v:
+        case "CURVE_25519":
+            return EllipticCurveType.CURVE_25519
+        case "CURVE_FOURQ":
+            return EllipticCurveType.CURVE_FOURQ
+        case "CURVE_SM2":
+            return EllipticCurveType.CURVE_SM2
+        case "CURVE_SECP256K1":
+            return EllipticCurveType.CURVE_SECP256K1
+        case "CURVE_25519_ELLIGATOR2":
+            return EllipticCurveType.CURVE_25519_ELLIGATOR2
+        case _:
+            return EllipticCurveType.CURVE_INVALID_TYPE
 
 
-def bucket_psi(
-    link: libspu.link.Context, config: BucketPsiConfig, ic_mode: bool = False
-) -> PsiResultReport:
-    """
-    Run bucket psi
-    :param link: the transport layer
-    :param config: psi config
-    :param ic_mode: Whether to run in interconnection mode
-    :return: statistical results
-    """
-    report_str = libspu.libs.bucket_psi(link, config.SerializeToString(), ic_mode)
-    report = PsiResultReport()
-    report.ParseFromString(report_str)
-    return report
+def parse_source_type(v: str) -> SourceType:
+    match v:
+        case "SOURCE_TYPE_FILE_CSV":
+            return SourceType.SOURCE_TYPE_FILE_CSV
+        case _:
+            return SourceType.SOURCE_TYPE_UNSPECIFIED
 
 
-def gen_cache_for_2pc_ub_psi(config: BucketPsiConfig) -> PsiResultReport:
-    """This API is still experimental.
+def parse_join_type(v: str) -> ResultJoinType:
+    match v:
+        case "JOIN_TYPE_INNER_JOIN":
+            return ResultJoinType.JOIN_TYPE_INNER_JOIN
+        case "JOIN_TYPE_LEFT_JOIN":
+            return ResultJoinType.JOIN_TYPE_LEFT_JOIN
+        case "JOIN_TYPE_RIGHT_JOIN":
+            return ResultJoinType.JOIN_TYPE_RIGHT_JOIN
+        case "JOIN_TYPE_FULL_JOIN":
+            return ResultJoinType.JOIN_TYPE_FULL_JOIN
+        case "JOIN_TYPE_DIFFERENCE":
+            return ResultJoinType.JOIN_TYPE_DIFFERENCE
+        case _:
+            return ResultJoinType.JOIN_TYPE_UNSPECIFIED
 
-    Args:
-        config (BucketPsiConfig): only the following fields are required:
-            - input_params
-            - output_params
-            - bucket_size
-            - curve_type
-            - ecdh_secret_key_path
 
-        Other fields would be overwritten.
+def parse_ub_psi_mode(mode: str) -> UbPsiMode:
+    match mode:
+        case "MODE_OFFLINE_GEN_CACHE":
+            return UbPsiMode.MODE_OFFLINE_GEN_CACHE
+        case "MODE_OFFLINE_TRANSFER_CACHE":
+            return UbPsiMode.MODE_OFFLINE_TRANSFER_CACHE
+        case "MODE_OFFLINE":
+            return UbPsiMode.MODE_OFFLINE
+        case "MODE_ONLINE":
+            return UbPsiMode.MODE_ONLINE
+        case "MODE_FULL":
+            return UbPsiMode.MODE_FULL
+        case _:
+            return UbPsiMode.MODE_UNSPECIFIED
 
-    Returns:
-        PsiResultReport: statistical results
-    """
-    config.psi_type = PsiType.Value('ECDH_OPRF_UB_PSI_2PC_GEN_CACHE')
-    config.broadcast_result = False
-    config.output_params.need_sort = False
-    config.receiver_rank = 0
-    report_str = libspu.libs.bucket_psi(None, config.SerializeToString())
-    report = PsiResultReport()
-    report.ParseFromString(report_str)
-    return report
+
+def parse_ub_psi_role(role: str) -> UbPsiRole:
+    match role:
+        case "ROLE_SERVER":
+            return UbPsiRole.ROLE_SERVER
+        case "ROLE_CLIENT":
+            return UbPsiRole.ROLE_CLIENT
+        case _:
+            return UbPsiRole.ROLE_UNSPECIFIED
