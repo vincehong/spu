@@ -1,0 +1,6 @@
+# keep CSVs + summary; ignore per-process logs from a local rerun
+*.log
+*.pid
+*.stdout
+harness.stderr
+harness.stdout

@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+results/**/*.log
+results/**/*.pid
+results/**/*.stdout
+results/**/harness.stderr
+results/**/harness.stdout
