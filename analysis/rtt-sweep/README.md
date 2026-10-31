@@ -1,0 +1,19 @@
+# Local 3-party SPDZwise vs ABY3 RTT sweep
+
+See [REPORT.md](REPORT.md) for the measured wall-clock ratios, the ≤5×
+statement, and exact commands.
+
+Quick start (from this directory, after building
+`//:mparty_rtt_bench` in `src/libspu/mpc/spdzwise/benchmarks`):
+
+```sh
+# RTT_MS is the *target ping RTT*. One-way hold is RTT/2.
+# This VM has CONFIG_NET_SCH_NETEM=n, so netem.sh uses veth + delay_switch.py.
+python3 run_sweep.py --output results \
+  --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
+  --rtt-ms 0,0.5,1,2,5,10 --ops trunc,linear,a2b
+python3 summarize.py results/summary.json
+```
+
+Three processes always bind `127.0.0.1` or `10.10.0.{1,2,3}` on one host.
+Do not start three VMs.

@@ -1,0 +1,5 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+aby3-exact,trunc,brpc,0,0,2048,128,64,34.141000,1441792,52
+aby3-exact,trunc,brpc,0,1,2048,128,64,27.016000,1441792,52
+aby3-exact,trunc,brpc,0,2,2048,128,64,25.580000,1441792,52
+aby3-exact,trunc,brpc,0,3,2048,128,64,24.837000,1441792,52

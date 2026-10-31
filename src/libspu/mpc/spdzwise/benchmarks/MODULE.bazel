@@ -11,6 +11,7 @@ bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "rules_cc", version = "0.0.12")
 bazel_dep(name = "rules_cuda", version = "0.2.3")
 bazel_dep(name = "rules_foreign_cc", version = "0.15.0")
+bazel_dep(name = "yacl", version = "0.4.5b12-nightly-20251024")
 
 # Bzlmod applies overrides only from the root module. The local patch labels
 # point to symlinks to the existing SPU patches.

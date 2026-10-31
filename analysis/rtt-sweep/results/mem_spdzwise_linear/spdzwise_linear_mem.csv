@@ -1,0 +1,5 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+spdzwise,linear,mem,0,0,2048,128,64,5.016713,1328466,882
+spdzwise,linear,mem,0,1,2048,128,64,3.542622,1328466,882
+spdzwise,linear,mem,0,2,2048,128,64,3.616210,1328466,882
+spdzwise,linear,mem,0,3,2048,128,64,4.112626,1328466,882
