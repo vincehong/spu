@@ -4,6 +4,113 @@
 (`opt B2A with width=1 and add PPML benchmark results`, `duan/codex/spdzwise-3pc`).
 This work is **not** based on `vincehong/spu` `main`.
 
+## What `sent_actions` means — are 867 rounds wrong?
+
+**No. 867 is not round depth.** It is a **message-count**, and it is a
+**three-party sum**. The BRPC ~15× wall-clock is still real; it comes from
+SPDZwise using a **ripple-carry adder** (~189 sequential AND rounds) where ABY3
+exact uses a **Kogge-Stone PPA** (~14 AND/rotate rounds), not from 867 vs 52
+as “rounds”.
+
+### What the counter actually is
+
+YACL `link::Statistics::sent_actions` is incremented **once per
+`Send` / `SendAsync` / `SendAsyncThrottled`** on that party’s `Context`
+(`yacl/link/context.cc`). The header says *“chunked mode is treated as a
+single action”* — HTTP fragmentation does **not** inflate the counter. Recv
+is a separate `recv_actions` and is not in our CSV.
+
+Our bench (`mparty_rtt_bench`) then **adds the three parties together** for
+the timed kernel only (warmup excluded). FactoryMem and BRPC report the same
+867 / 52, so this is protocol structure, not TCP.
+
+| quantity | SPDZwise `trunc` 2048 FM64 | ABY3 exact `trunc` |
+| --- | ---: | ---: |
+| `sent_actions` **3-party sum** (CSV) | **867** | **52** |
+| `sent_actions` **per party** | **289** | **17 or 18** (reveal is 1-sided, 17+17+18=52) |
+| sequential **AND / rotate rounds** (critical path) | **~189** | **~14** |
+| extra auth / open / AllGather rounds | ~20–40 (MAC + ABFL) | ~4 (B2A reveal + extra rotate) |
+| estimated **critical-path rounds** | **~210–230** | **~18** |
+| `sent_bytes` 3-party sum | 13 040 028 | 1 441 792 |
+
+A single SPDZwise `and_bb` is 1 `SendAsync` to `PrevRank` + `Recv` from
+`NextRank` — the same ring-rotate as ABY3 `Communicator::rotate`, which
+increments SPU `Communicator.latency` by 1. Tests pin this:
+`boolean_test.cc` expects `sent_actions += 1` per `and_bb`. AllGather is
+**2** `SendAsync`s (one to each peer) in **1** round, so it inflates
+`sent_actions` more than round depth.
+
+### Expected rounds for batch 2048 FM64 (`nbits = 64`)
+
+Batch size does **not** change AND-round depth: 2048 lanes pack into 32
+64-bit words. Bytes scale with `n`; rounds do not.
+
+**SPDZwise `TruncNaive`** (`ring_truncation.cc`): `a2b` → local arithmetic
+right shift → `b2a`.
+
+Split-3 A2B (`ring_conversion.cc`):
+
+1. `SplitSummands`: 63 CSA ANDs **batched** into **1** `AndLayer` / 1 round.
+2. `Add(..., zero_lsb=true)`: **ripple-carry**, one AND per retained carry
+   for bits 1…62 → **62 sequential rounds**.
+
+A2B AND rounds = **63**. (Not `log 64`.)
+
+B2A (width=64, not the width=1 daBit path):
+
+1. `Sliced(mask)` = another A2B of a fresh authenticated mask → **63** AND
+   rounds.
+2. `Add(x, r)` with `zero_lsb=false` → **63** sequential AND rounds
+   (bits 0…62).
+3. `verify()` (MAC check + ABFL) then a Boolean open.
+
+AND subtotal = **189 sequential rotate-rounds**. Three-party AND messages =
+189×3 = **567**. The remaining **300** of 867 are MAC/ABFL/open/AllGather
+(`RequireAll` is two AllGathers; `gather` is two peer Sends + a digest
+AllGather). `a2b` alone is 369 = 189 AND messages + ~180 check messages,
+because `prepareOutputs`/`commit` runs ABFL when A2B did not verify itself.
+
+**ABY3 exact** (`b2a(arshift_b(a2b(x), 16))`), FM64:
+
+- A2B (`conversion.cc`): 1 rotate + `add_bb` Kogge-Stone. Comment:
+  *“Latency: 2 + log(nbits) from 1 rotate and 1 ppa”*.
+- `ppa_kogge_stone` (`ab_api.cc`): 1 AND for generate, then `log2(64)=6`
+  levels; `vmap` **packs the two ANDs per level into one** `and_bb` → **7
+  AND rounds**.
+- B2A-by-PPA (`nbits > 8`): 1 rotate + 7 AND + 1 P2→P0 reveal + 1 rotate.
+
+Action check: A2B 3+21=24, B2A 3+21+1+3=28, **total 52**. Round depth
+**~18**. ARShiftB is local.
+
+ABY3 semi `TruncAPr2` is 5 three-party actions (~1–2 rounds). That is a
+different algorithm, not “exact trunc with fewer rounds”.
+
+### Why BRPC is still ~15× if rounds are “only” ~13×
+
+Rounds are **not** similar. Ripple 189 vs Kogge-Stone 14 is already
+**~13.5×** on the AND critical path; ~18 vs ~220 with checks is
+**~12×**. Message-count ratio 867/52 = **16.7×** is the same ratio as
+per-party Sends (289/17) because each AND round is one Send per party.
+
+Wall-clock tracks **round depth**, not the 867 figure as a round count:
+
+| setting | SPDZwise / ABY3 exact | ping | SPDZwise ms / ping |
+| --- | ---: | ---: | ---: |
+| FactoryMem | 3.46× | — | compute (MAC/ABFL/ripple locally) |
+| BRPC ~0.25 ms (veth hold=0) | 10.13× | 0.245 ms | mixed |
+| BRPC ~1.34 ms | **15.13×** | 1.343 ms | 257 / 1.34 ≈ **192** sequential RTTs |
+| BRPC ~10.5 ms | 17.99× | 10.514 ms | 1797 / 10.5 ≈ **171** sequential RTTs |
+
+~190 RTTs ≈ the **189 AND rounds**. That is why 1 Gbit/s did not move the
+ratio (round-dominated, not byte-dominated). Bytes still differ ~9×, which
+adds a little on top of the round ratio and pushes ~13× toward the measured
+~15–18×.
+
+Vs **semi**, the round gap is ~189 vs ~2, so ~160× at LAN RTT is expected
+and is **not** a counter bug.
+
+JSON: [`results/actions_vs_rounds.json`](results/actions_vs_rounds.json).
+
 ## SPDZwise RING vs ABY3 exact at 1 Gbit/s
 
 **≤5× vs ABY3 exact still does not hold** with each party link capped at
@@ -45,9 +152,10 @@ Measured ping: **1.36 ms** / **5.44 ms**. Bytes/actions unchanged (`trunc`
 still ~168× on `trunc` (246.5 / 1.47 ms) — kept because it is cheap.
 
 Capping at 1 Gbit/s does **not** move the exact-trunc ratio: these kernels are
-round-dominated (867 vs 52 actions on `trunc`), and the uncapped veth path was
-only ~1.7 Gbit/s. Ratios match the earlier uncapped 1 ms / 5 ms tables
-(15.1× / 17.5× on `trunc`). The ≤5× exact budget remains FactoryMem-only.
+round-dominated (ripple ~189 AND rounds vs Kogge-Stone ~14; `sent_actions`
+867 vs 52 is the 3-party Send sum, not round depth), and the uncapped veth
+path was only ~1.7 Gbit/s. Ratios match the earlier uncapped 1 ms / 5 ms
+tables (15.1× / 17.5× on `trunc`). The ≤5× exact budget remains FactoryMem-only.
 
 JSON: [`results/vs_aby3_exact_1gbit.json`](results/vs_aby3_exact_1gbit.json),
 [`results-1gbit/summary.json`](results-1gbit/summary.json).
@@ -78,8 +186,9 @@ kernel only): `trunc` 13 040 028 / 867 vs exact 1 441 792 / 52; `linear`
 
 The 5 ms re-run matches the first pass (`trunc` 17.56× then, 17.52× now).
 Raising RTT from ~1 ms to ~5 ms does **not** bring SPDZwise within 5× of ABY3
-exact: both sides grow with latency, and SPDZwise still has ~15× more actions
-on `trunc` (867 vs 52), so the ratio stays in the mid-teens. The ≤5×
+exact: both sides grow with latency, and SPDZwise still has ~13× more
+AND-round depth on `trunc` (ripple ~189 vs Kogge-Stone ~14; 867 vs 52 is
+the 3-party Send sum), so the ratio stays in the mid-teens. The ≤5×
 exact-trunc budget only appears on **FactoryMem** (`trunc` 3.46×, `linear`
 5.12×), which cannot see injected RTT.
 
@@ -108,8 +217,9 @@ is **5.12×**. That matches the branch story that *large* exact-trunc PPML graph
 can sit near 5× on FactoryMem. Moving the same kernels onto three TCP processes
 and adding LAN-like RTT pushes the exact-trunc ratio to **10–15×** at ≲1 ms and
 **15–18×** at 10 ms. Extra RTT does **not** close the gap to ABY3 semi:
-SPDZwise `trunc` sends 867 actions / 13.0 MiB versus ABY3 semi 5 actions / 56 KiB,
-so the wall-clock ratio stays around **160×** once latency dominates.
+SPDZwise `trunc` has ~189 sequential AND rounds / 13.0 MiB versus ABY3 semi
+~2 rounds / 56 KiB (5 `sent_actions` 3-party sum), so the wall-clock ratio
+stays around **160×** once latency dominates.
 
 Tiny single-sample inference (branch PPML 8–13×, compute-bound) was not rerun.
 
@@ -198,8 +308,8 @@ is also window-limited (1 ms **0.97 Gbit/s**, 5 ms **0.24 Gbit/s**).
 ## Wall-clock tables
 
 Median of 3 measured iterations (warmup discarded). `sent_bytes` /
-`sent_actions` are the **three-party sum** of YACL link counters over the timed
-kernel only. Ratios are SPDZwise / ABY3.
+`sent_actions` are the **three-party sum** of YACL `Send*` calls over the timed
+kernel only (not critical-path rounds; see above). Ratios are SPDZwise / ABY3.
 
 ### `trunc` (2048 FM64 elements, shift 16)
 
@@ -343,5 +453,6 @@ bash netem.sh down
 | `analysis/rtt-sweep/results-5ms-rerun/` | dedicated ~5 ms BRPC re-run |
 | `analysis/rtt-sweep/results-1gbit/` | BRPC ~1 ms / ~5 ms with 1 Gbit/s cap |
 | `analysis/rtt-sweep/results/vs_aby3_exact_1gbit.json` | 1 Gbit/s vs ABY3 exact table |
+| `analysis/rtt-sweep/results/actions_vs_rounds.json` | `sent_actions` vs true round-depth breakdown |
 | `analysis/rtt-sweep/measure_tput.py` | 32 MiB TCP probe through the switch |
 | `src/libspu/mpc/spdzwise/benchmarks/mparty_rtt_bench.cc` | SPDZwise / ABY3 / ABY3-exact kernels |
