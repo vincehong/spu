@@ -149,7 +149,7 @@ void Run(const std::string& protocol, int64_t count, int repetitions,
         r.phase_ms = SpdzWiseBenchmarkAccess::times(state);
         r.phase_bytes = SpdzWiseBenchmarkAccess::bytes(state);
         r.and_bits = SpdzWiseBenchmarkAccess::gates(state);
-        SPU_ENFORCE(r.and_bits == 188 * ((size_t(count) + 63) / 64) * 64);
+        SPU_ENFORCE(r.and_bits == 1380 * ((size_t(count) + 63) / 64) * 64);
         r.verify_ms = r.phase_ms[2];
         r.online_ms = r.total_ms - r.verify_ms;
         r.verify_bytes = r.phase_bytes[2];

@@ -104,8 +104,8 @@ as a runtime dependency.
 | Boolean online and checking | ABY3 online AND; `Protocols/ShuffleSacrifice.h`, `MalRepRingPrep.hpp` | ABFL prototype with 64-bit word buckets, final post-sacrifice and checked Boolean IO; uses one fresh random pool rather than `PostSacriBin`'s two-level pools |
 | Correlated bits | `Protocols/ReplicatedPrep.hpp`, `DabitSacrifice`, `ShuffleSacrifice` | RING authenticated random bits/daBits support MulA1B and retained probabilistic truncation; FIELD conversion material remains outstanding |
 | FIELD A2B | `Compiler/non_linear.py::KnownPrime`, `floatingpoint.py::BitDecFull` | Plaintext oracle only; cryptographic masking and binary circuits outstanding |
-| RING A2B | `SpdzWiseRingShare::split`, `Rep3Share2::split(case 3)` | Value-only local split-3, bit-sliced CSA + RCA, existing ABFL final verification |
-| RING B2A | `Compiler/types.py::_secret.bit_compose` splitting branch | Authenticated random mask, split-3 A2B, RCA, checks before Boolean opening; FIELD and daBit paths outstanding |
+| RING A2B | `SpdzWiseRingShare::split`, `Rep3Share2::split(case 3)` | Value-only local split-3, bit-sliced CSA + Kogge–Stone, existing ABFL final verification |
+| RING B2A | `Compiler/types.py::_secret.bit_compose` splitting branch | Authenticated random mask, split-3 A2B, Kogge–Stone add, checks before Boolean opening; FIELD and daBit paths outstanding |
 | FIELD truncation | KnownPrime decomposition route, adapted to SPU rounding | Plaintext floor oracle only; A2B/shift/B2A kernels outstanding |
 | RING probabilistic truncation | `floatingpoint.py::TruncPrRing`, signed, k=63 | Authenticated random masks, low-64-bit opening and signed offset correction |
 
@@ -244,7 +244,7 @@ or secret ANDs. B2A generates its authenticated mask and verifies all pending
 arithmetic and Boolean work, including the first A2B, before opening the masked
 result. The output retains its MAC and can feed subsequent arithmetic.
 
-The two conversions use 125 + 188 = 313 ANDs per input, packed in 64 lanes;
+The two conversions use 718 + 1380 = 2098 ANDs per input, packed in 64 lanes;
 tail lanes participate in the same ABFL check. A single combined checkpoint
 checks both conversions, rather than finalizing between them. FIELD does not
 register this kernel. This exact floor contract replaces the default's former
@@ -533,30 +533,28 @@ c = ((x0 XOR x2) AND (x1 XOR x2)) XOR x2
 result = s + (c << 1) mod 2^64
 ```
 
-The retained circuit is a bit-sliced CSA followed by a ripple-carry adder.
-Each 64-bit word packs the same bit of 64 separate inputs; a 64x64 transpose
-packs and restores the ordinary word representation. The CSA uses 63 ANDs
-and the adder 62, for 125 active ANDs per input and 63 online AND rounds.
-The last SIMD block is zero-padded on input; its lanes are still checked.
-The checker records `125 * ceil(numel / 64)` full AND words.
+The retained circuit is a bit-sliced CSA followed by a Kogge–Stone
+parallel-prefix adder. Each 64-bit word packs the same bit of 64 separate
+inputs; a 64x64 transpose packs and restores the ordinary word representation.
+The CSA uses 63 ANDs in one round. The adder is one generate layer plus six
+prefix layers (distance 1, 2, 4, 8, 16, 32), with the last layer computing
+generate only, for eight online AND rounds including the CSA. Carry-out of
+bit 63 is discarded. A2B's CSA carry has a public zero at bit 0, so that
+generate and every prefix combine with G[0] are skipped: 655 adder ANDs and
+718 ANDs per input in total. The last SIMD block is zero-padded on input; its
+lanes are still checked. The checker records `718 * ceil(numel / 64)` full
+AND words.
 
-The carry identity `carry_out = carry_in XOR ((a XOR carry_in) AND
-(b XOR carry_in))` needs just one AND per full adder. This is an existing
-circuit optimization: [Kolesnikov–Sadeghi–Schneider, CANS 2009, Section 3.1](https://encrypto.de/papers/KSS09.pdf)
-describes the one-AND full adder; [ABY3, CCS 2018](https://eprint.iacr.org/2018/403.pdf)
-uses the same three-to-two CSA reduction followed by a parallel-prefix adder
-for malicious A2B; [SECRECY, NSDI 2023, Appendix A.1](https://www.usenix.org/system/files/nsdi23-liagouris.pdf)
-also describes RCA-based arithmetic/Boolean sharing conversion.
-
-Our choice combines these existing techniques with bit-slicing and deferred
-ABFL verification. RCA reduces AND work but has a linear carry dependency;
-prefix adders reduce communication rounds. In the 100K-input FactoryMem
-experiment, CSA + RCA was fastest including final verification; this does not
-establish the fastest circuit on high-latency networks. Word-packed AND counts
-include unused bit positions and are not minimum circuit gate counts.
-Native ABY3 uses a different default adder and is a semi-honest baseline, so
-this comparison does not isolate per-gate protocol overhead. See the
-[selection and final benchmark report](benchmarks/a2b-split3-100k-2026-10-22/RESULTS.md).
+[ABY3, CCS 2018](https://eprint.iacr.org/2018/403.pdf) uses the same
+three-to-two CSA reduction followed by a parallel-prefix adder for malicious
+A2B. The 100K-input FactoryMem experiment ranked CSA + RCA fastest including
+final ABFL verification (RCA 125 ANDs / 63 layers, BK 291 / 12, word-packed
+KS 832 / 8); those KS/BK candidates were then deleted. The registered adder
+is now bit-sliced Kogge–Stone so TruncNaive/A2B/B2A follow the ABY3 exact
+round depth on high-RTT links. FactoryMem cost is dominated by ABFL AND
+count, so RCA can still win there. See the
+[selection and final benchmark report](benchmarks/a2b-split3-100k-2026-10-22/RESULTS.md)
+and the RTT sweep in `analysis/rtt-sweep/REPORT.md`.
 
 Every secret AND uses the existing ABFL session and its saved verification
 records. A2B itself does not finalize or reveal. Callers can compose its output
@@ -636,7 +634,8 @@ Only that bit is unpacked, with each output share component normalized to 0/1.
 There are 241 ANDs per input lane: 63 for CSA, 62 initial generates, 61
 generate merges and 55 propagate merges. Independent gates share one ABFL
 call per layer: eight online AND rounds in total. Padding to 64 input lanes
-remains covered by the deferred verifier. A2B/B2A retain their existing RCA.
+remains covered by the deferred verifier. A2B/B2A use bit-sliced Kogge–Stone;
+this MSB tree is unchanged.
 
 RING uses the original HAL comparison `MSB(x-y)`, with one MSB circuit.
 Signed comparisons are correct when the mathematical difference fits int64;
@@ -681,7 +680,7 @@ Reference: MP-SPDZ commit `113c4e47dd94bca9ecab029d2f0abe649bea5c52`,
 `Compiler/types.py::_secret.bit_compose` ring
 splitting branch and `Protocols/SpdzWise.hpp` random-value authentication,
 used by `Machines/sy-rep-ring-party.cpp`. We retain its full-word masking
-construction, with the existing ABFL backend and RCA selected for A2B:
+construction, with the existing ABFL backend and Kogge–Stone selected for A2B:
 
 ```
 r_A = fresh authenticated random extended-ring element
@@ -702,10 +701,11 @@ output retains the extended-ring representative `c-r`, with MAC
 `alpha*c - mac_r`; only its low 64 bits are the application value.
 
 The mask's A2B result stays bit-sliced until after the second addition. A2B
-costs 125 ANDs per input, and the full-word RCA costs 63, for
-`188 * ceil(numel/64)` packed AND words. Tail lanes participate in verification.
-There are 126 online AND layers before the combined check. This multi-bit
-path does not use short-width carry correction.
+costs 718 ANDs per input, and the full-word Kogge–Stone add costs 662, for
+`1380 * ceil(numel/64)` packed AND words. Tail lanes participate in verification.
+There are 15 online AND layers before the combined check (8 for the mask A2B,
+7 for the second add). This multi-bit path does not use short-width carry
+correction.
 
 Both arithmetic verification and ABFL verification finish **before** any
 `b2a-open` payload is sent. Opening reuses replicated-copy checks and agreement
@@ -718,7 +718,7 @@ checking behavior remains unchanged.
 Empty inputs consume no randomness, send no messages and trigger no checks.
 Every nonempty input size can reach this opening checkpoint. If the combined
 Boolean queue has fewer than 1024 packed words, the checker appends public zero
-anchors and uses B=5. The `188 * ceil(numel/64)` circuit-word count excludes
+anchors and uses B=5. The `1380 * ceil(numel/64)` circuit-word count excludes
 these anchors. Even a standalone single-element B2A verifies before opening.
 
 Run the comparable 100K full-word benchmark with:

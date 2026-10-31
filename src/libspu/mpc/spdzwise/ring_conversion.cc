@@ -64,21 +64,63 @@ void Transpose(std::array<uint64_t, 64>& a) {
     }
   }
 }
-// Ripple carry: one AND per retained carry. A2B skips bit zero because
-// its second CSA output has a public zero there; general B2A addition does not.
+// Bit-sliced Kogge–Stone modulo 2^64. One generate layer plus six prefix
+// layers (distance 1,2,4,8,16,32); the last layer computes generate only.
+// Independent ANDs in a layer share one ABFL call. Carry-out of bit 63 is
+// discarded, so G[63]/P[63] are never formed. A2B's CSA carry has a public
+// zero at bit 0, so that generate AND and every prefix combine with G[0]
+// are skipped. Sum bit i is (a[i] XOR b[i]) XOR G[i-1].
 Planes Add(SpdzWiseState* state, const Planes& a, const Planes& b,
            bool zero_lsb = false) {
-  Planes result;
-  if (zero_lsb) result.push_back(a[0]);
-  auto carry = Zero(a[0].eltype(), a[0].numel());
-  for (size_t bit = zero_lsb ? 1 : 0; bit < 64; ++bit) {
-    result.push_back(Xor(Xor(a[bit], b[bit]), carry));
-    if (bit < 63) {
-      auto next = state->booleanBinary(Xor(a[bit], carry), Xor(b[bit], carry),
-                                       true, false);
-      carry = Xor(next, carry);
-    }
+  SPU_ENFORCE(a.size() == 64 && b.size() == 64);
+  const auto n = a[0].numel();
+  const auto type = a[0].eltype();
+  Planes P(64), G(64);
+  Planes lhs, rhs;
+  const size_t first = zero_lsb ? 1 : 0;
+  if (zero_lsb) {
+    P[0] = a[0];
+    G[0] = Zero(type, n);
   }
+  for (size_t i = first; i < 63; ++i) {
+    P[i] = Xor(a[i], b[i]);
+    lhs.push_back(a[i]);
+    rhs.push_back(b[i]);
+  }
+  auto products = AndLayer(state, lhs, rhs);
+  for (size_t j = 0; j < products.size(); ++j) G[first + j] = products[j];
+  for (int idx = 0; idx < 6; ++idx) {
+    const size_t d = size_t(1) << idx;
+    const bool last = idx == 5;
+    lhs.clear();
+    rhs.clear();
+    std::vector<size_t> g_idx, p_idx;
+    for (size_t i = d; i < 63; ++i) {
+      if (!(zero_lsb && i == d)) {
+        lhs.push_back(P[i]);
+        rhs.push_back(G[i - d]);
+        g_idx.push_back(i);
+      }
+    }
+    if (!last) {
+      for (size_t i = d; i < 63; ++i) {
+        lhs.push_back(P[i]);
+        rhs.push_back(P[i - d]);
+        p_idx.push_back(i);
+      }
+    }
+    products = AndLayer(state, lhs, rhs);
+    Planes next_g = G;
+    Planes next_p = P;
+    size_t gate = 0;
+    for (size_t i : g_idx) next_g[i] = Xor(G[i], products[gate++]);
+    for (size_t i : p_idx) next_p[i] = products[gate++];
+    G = std::move(next_g);
+    P = std::move(next_p);
+  }
+  Planes result{zero_lsb ? a[0] : Xor(a[0], b[0])};
+  for (size_t i = 1; i < 64; ++i)
+    result.push_back(Xor(Xor(a[i], b[i]), G[i - 1]));
   return result;
 }
 Planes SliceBoolean(const NdArrayRef& in, const Type& type) {

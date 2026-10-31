@@ -1,6 +1,6 @@
 # split-3 A2B：电路选型及原生 ABY3 baseline
 
-最终实现选择 **CSA + bit-sliced RCA**。Brent–Kung、Kogge–Stone 及临时选择接口已从运行代码和基准中删除；这里保留其原始测量与源码指纹。
+本次 FactoryMem 实验选择 **CSA + bit-sliced RCA**。Brent–Kung、Kogge–Stone 及临时选择接口随后从运行代码删除；这里保留其原始测量与源码指纹。注册加法器后来改为 bit-sliced Kogge–Stone（见 `ring_conversion.cc` 与 `analysis/rtt-sweep/REPORT.md`），因为高 RTT 下 8 层 AND 优于 RCA 的 63 层。
 
 ## 实验口径
 

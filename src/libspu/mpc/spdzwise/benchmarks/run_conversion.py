@@ -43,7 +43,7 @@ def summarize(rows, count, repetitions, wise, operation):
             assert int(r["final_checks"]) == int(wise)
             assert int(r["arithmetic_checks"]) == int(wise)
             if phase_keys:
-                assert int(r["and_bits"]) == 188 * ((count + 63) // 64) * 64
+                assert int(r["and_bits"]) == 1380 * ((count + 63) // 64) * 64
                 assert sum(int(r[k + "_bytes"]) for k in phase_keys) == int(r["sent_bytes"])
                 assert abs(float(r["check_ms"]) - float(r["verify_ms"])) < 1e-4
             assert int(r["sent_bytes"]) == int(r["online_bytes"]) + int(r["verify_bytes"])

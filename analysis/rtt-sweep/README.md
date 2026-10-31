@@ -24,6 +24,11 @@ RATE_GBPS=1 RTT_MS=1 bash netem.sh up    # or python3 run_sweep.py --rate-gbps 1
 python3 run_sweep.py --skip-mem --output results-1gbit --rate-gbps 1 \
   --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
   --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
+
+# After switching RING Add() to bit-sliced Kogge-Stone:
+python3 run_sweep.py --output results-ks --rate-gbps 1 \
+  --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
+  --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
 ```
 
 Three processes always bind `127.0.0.1` or `10.10.0.{1,2,3}` on one host.

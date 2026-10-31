@@ -291,7 +291,10 @@ tests do not certify the complete protocol's statistical security bound.
 Registered value-only RING/FM64 `a2b`, preserving shape/dtype/session. Compared
 CSA + bit-sliced RCA, pruned Brent–Kung, word-packed Kogge–Stone, and the native
 ABY3 A2B on identical full-width 100K inputs. RCA won by more than the 3% tie
-threshold; the other implementations and candidate switches were deleted.
+threshold on FactoryMem; those KS/BK candidates were deleted. The registered
+adder was later switched to bit-sliced Kogge–Stone (8 AND layers) so
+TruncNaive/A2B follow ABY3 exact's round depth on high-RTT links; MsbA2B's
+carry tree is unchanged.
 Final optimized build and six regression targets passed 61 cases (the unchanged
 session target was cached). Conversion tests cover shape/stride/tails, arithmetic
 and Boolean composition, session rejection, small-batch accumulation and six
@@ -590,7 +593,9 @@ not model two corrupt parties under the one-corruption threat model.
 
 The 100K benchmark compares the registered B2A kernels, verifies every output
 for one warmup and seven measured runs, asserts one arithmetic mask check and
-one ABFL check, and records all 188 ANDs per padded input lane. Raw logs,
+one ABFL check, and recorded all 188 ANDs per padded input lane (RCA adder
+then in tree; the registered adder is now bit-sliced Kogge–Stone at 1380
+ANDs per padded lane). Raw logs,
 parameters, hashes and validation artifacts are archived in
 `benchmarks/b2a-split3-100k-2026-10-22/`.
 

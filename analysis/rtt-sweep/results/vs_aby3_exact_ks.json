@@ -1,0 +1,40 @@
+{
+  "note": "SPDZwise RING TruncNaive/A2B after switching Add() from ripple-carry to bit-sliced Kogge-Stone. sent_actions is the three-party YACL Send() sum, not round depth. ABY3 exact = A2B -> ARShiftB -> B2A. a2b row is vs native ABY3 A2B.",
+  "adder": "bit-sliced Kogge-Stone (CSA 1 layer + generate + 6 prefix, last G-only; MsbA2B tree unchanged)",
+  "and_words_per_64_lane_block": {"a2b": 718, "b2a": 1380, "rca_was": {"a2b": 125, "b2a": 188}},
+  "and_rounds_trunc": {"a2b": 8, "b2a": 15, "total": 23, "rca_was": 189, "aby3_exact": 14},
+  "measured_ping_ms": {"brpc_1ms_1g": 1.342, "brpc_5ms_1g": 5.449},
+  "tput_gbps_32mib": {"hold_0.5ms": 0.920, "hold_2.5ms": 0.207},
+  "factory_mem": {
+    "trunc": {"wise_ms": 41.202, "exact_ms": 2.609, "semi_ms": 0.138, "vs_exact": 15.79, "vs_semi": 298.0, "wise_bytes": 64751388, "wise_actions": 426, "exact_bytes": 1441792, "exact_actions": 52},
+    "linear": {"wise_ms": 7.594, "exact_ms": 0.819, "semi_ms": 0.329, "vs_exact": 9.28, "vs_semi": 23.08, "wise_bytes": 5372802, "wise_actions": 384, "exact_bytes": 93184, "exact_actions": 55},
+    "a2b": {"wise_ms": 13.275, "aby3_ms": 1.428, "vs_aby3": 9.29, "wise_bytes": 22060704, "wise_actions": 183, "aby3_bytes": 688128, "aby3_actions": 24}
+  },
+  "brpc_1ms_1gbit": {
+    "trunc": {"wise_ms": 521.279, "exact_ms": 20.176, "semi_ms": 1.518, "vs_exact": 25.84, "vs_semi": 343.4, "wise_min_max_ms": [519.697, 537.909], "exact_min_max_ms": [18.065, 21.564]},
+    "linear": {"wise_ms": 95.241, "exact_ms": 12.190, "semi_ms": 2.009, "vs_exact": 7.81, "vs_semi": 47.41},
+    "a2b": {"wise_ms": 168.432, "aby3_ms": 8.099, "vs_aby3": 20.80}
+  },
+  "brpc_5ms_1gbit": {
+    "trunc": {"wise_ms": 1351.388, "exact_ms": 53.860, "semi_ms": 5.886, "vs_exact": 25.09, "vs_semi": 229.6, "wise_min_max_ms": [1308.474, 1363.710], "exact_min_max_ms": [53.541, 54.669]},
+    "linear": {"wise_ms": 336.462, "exact_ms": 53.872, "semi_ms": 9.445, "vs_exact": 6.25, "vs_semi": 35.62, "wise_min_max_ms": [332.616, 342.570], "exact_min_max_ms": [52.842, 54.165]},
+    "a2b": {"wise_ms": 482.660, "aby3_ms": 25.194, "vs_aby3": 19.16, "wise_min_max_ms": [482.360, 510.398], "aby3_min_max_ms": [24.427, 25.264]}
+  },
+  "rca_vs_ks_vs_exact": {
+    "trunc_factory_mem": {"rca": 3.46, "ks": 15.79},
+    "trunc_brpc_1ms": {"rca": 15.04, "ks": 25.84},
+    "trunc_brpc_5ms": {"rca": 17.58, "ks": 25.09},
+    "linear_factory_mem": {"rca": 5.12, "ks": 9.28},
+    "linear_brpc_1ms": {"rca": 14.45, "ks": 7.81},
+    "linear_brpc_5ms": {"rca": 14.62, "ks": 6.25},
+    "a2b_factory_mem": {"rca": 2.74, "ks": 9.29},
+    "a2b_brpc_1ms": {"rca": 12.09, "ks": 20.80},
+    "a2b_brpc_5ms": {"rca": 14.24, "ks": 19.16}
+  },
+  "le5x": {
+    "trunc": false,
+    "a2b": false,
+    "linear_brpc": "closer (14.5x -> 7.81x @1ms, 6.25x @5ms) but still >5x",
+    "factory_mem": "lost the RCA <=5x cells (trunc 3.46x, linear 5.12x) because ABFL AND-count rose ~7x"
+  }
+}

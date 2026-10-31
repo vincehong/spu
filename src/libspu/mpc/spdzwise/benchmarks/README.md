@@ -45,7 +45,8 @@ python3 run_conversion.py NEW_OUTPUT_DIRECTORY
 
 [100K 选型与最终结果](a2b-split3-100k-2026-10-22/RESULTS.md)保留了
 CSA + bit-sliced RCA、剪枝 Brent–Kung、word-packed Kogge–Stone 和原生 ABY3
-的实测数据。最终只保留总耗时最快的 RCA 实现及 ABY3 baseline。
+的实测数据。FactoryMem 当时只保留总耗时最快的 RCA；注册加法器后来改为
+bit-sliced Kogge–Stone（8 层 AND），供 TruncNaive/A2B 在高 RTT 下使用。
 
 ## RING split-3 masked B2A
 
@@ -55,7 +56,7 @@ python3 run_conversion.py NEW_OUTPUT_DIRECTORY --operation b2a
 ```
 
 使用与上面相同的 100K、64-worker、一次预热及七轮测量口径。SPDZwise 计时包含
-认证随机掩码、split-3 A2B、Boolean RCA 加法、算术检查、一次 ABFL 检查、打开
+认证随机掩码、split-3 A2B、Boolean Kogge–Stone 加法、算术检查、一次 ABFL 检查、打开
 掩码结果和算术减法。ABFL 在打开前完成；输出导出不会再次验证同一批 AND。
 基线调用原生 ABY3 `B2ASelector`，全宽输入走其 PPA 路线。双方输入均为新鲜
 XOR RSS，ABY3 在计时外使用其原生 Boolean 类型；不把 A2B 输入转换计入 B2A。

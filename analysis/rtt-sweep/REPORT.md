@@ -1,16 +1,81 @@
 # SPDZwise RING vs ABY3 RTT sweep
 
 **Source tip:** `5ca32c7296ecabcab4c69e67ddc89b5be3fe0e5d`
-(`opt B2A with width=1 and add PPML benchmark results`, `duan/codex/spdzwise-3pc`).
+(`opt B2A with width=1 and add PPML benchmark results`, `duan/codex/spdzwise-3pc`),
+plus this change: RING `Add()` in `ring_conversion.cc` is bit-sliced
+**Kogge–Stone** (TruncNaive / A2B / B2A). `MsbA2B`’s carry tree is unchanged.
 This work is **not** based on `vincehong/spu` `main`.
+
+## Kogge–Stone A2B (vs the RCA tables below)
+
+The 100k FactoryMem candidate run ranked **RCA 145 ms / BK 306 ms / KS 626 ms**
+(AND/input 125 / 291 / 832, AND-layers 63 / 12 / 8) and then **deleted** KS/BK
+from the running tree. Those KS/BK sources are gone; only
+`benchmarks/a2b-split3-100k-2026-10-22/RESULTS.md` remains. There was no
+enable-flag. For LAN RTT the ranking is inverted: KS has the fewest AND
+layers, so `Add()` is now bit-sliced Kogge–Stone on the existing Planes
+(generate + distances 1,2,4,8,16,32, last layer G-only, CSA still 1
+`AndLayer`; A2B skips the public-zero LSB; carry-out of bit 63 discarded).
+
+Smoke: `conversion_bench` verified a2b/b2a at 1 / 65 / 130 elements.
+Packed AND words per 64-lane block: **A2B 718**, **B2A 1380** (RCA was 125 /
+188). TruncNaive AND-round depth **23** (A2B 8 + B2A 15) vs RCA **189** vs
+ABY3 exact **~14**.
+
+`sent_actions` is still the **three-party YACL Send() sum**, not rounds.
+
+| quantity (trunc 2048 FM64) | RCA (previous) | **KS (this run)** | ABY3 exact |
+| --- | ---: | ---: | ---: |
+| `sent_actions` **3-party sum** | 867 | **426** | **52** |
+| `sent_actions` per party | 289 | **142** | 17 or 18 |
+| sequential **AND rounds** | ~189 | **23** | ~14 |
+| `sent_bytes` 3-party sum | 13 040 028 | **64 751 388** | 1 441 792 |
+
+linear: 882 → **384** actions, 1 328 466 → **5 372 802** bytes (exact 55 /
+93 184). a2b: 369 → **183** actions, 5 092 032 → **22 060 704** bytes
+(ABY3 A2B 24 / 688 128). AND messages for trunc are now 23×3 = **69** of
+the 426; the other 357 are MAC/ABFL/open/AllGather. ABFL grew because it
+checks every packed AND word.
+
+Re-run: FactoryMem + BRPC target ping **1 ms** and **5 ms**, 1 Gbit/s cap
+(userspace token bucket). Measured ping **1.342 ms** / **5.449 ms**. 1
+warmup + 3 measured.
+
+| kernel | FactoryMem vs exact | **BRPC ~1 ms + 1 Gbit/s vs exact** | **BRPC ~5 ms + 1 Gbit/s vs exact** |
+| --- | ---: | ---: | ---: |
+| `trunc` 2048 el | **15.79×** (41.2 / 2.61 ms) | **25.84×** (521.3 / 20.2 ms) | **25.09×** (1351 / 53.9 ms) |
+| `linear` 128×64 mmul+trunc | **9.28×** (7.59 / 0.82 ms) | **7.81×** (95.2 / 12.2 ms) | **6.25×** (336.5 / 53.9 ms) |
+| `a2b` vs native ABY3 A2B | **9.29×** (13.3 / 1.43 ms) | **20.80×** (168.4 / 8.10 ms) | **19.16×** (482.7 / 25.2 ms) |
+
+RCA (same harness, previous commits) was FactoryMem trunc **3.46×**, BRPC
+~1 ms **15.0×**, ~5 ms **17.6×**; linear 5.12× / 14.5× / 14.6×; a2b 2.74× /
+12.1× / 14.2×.
+
+**Is ≤5× closer?** Only for **linear** on BRPC (14.5× → **7.81×** @1 ms,
+**6.25×** @5 ms) — still above 5×. `trunc` and `a2b` moved **away** from
+5×, and FactoryMem **lost** the RCA ≤5× cells (trunc 3.46×, linear 5.12×).
+
+Why: KS buys rounds (189 → 23) and pays AND-volume (~7× packed words, ~5×
+bytes). FactoryMem is ABFL-bound, matching the 100k ranking. BRPC `trunc`
+at 1 ms is 521 / 1.34 ≈ **388** ping RTTs, not 23 — ABFL + 62 MiB now
+dominate, so the round win does not show up. `linear` truncates 128
+elements (2 blocks vs 32), so the same 23 AND rounds ride on ~16× less
+ABFL traffic and the wall-clock ratio drops. Vs ABY3 **semi**, `trunc` is
+still **~230–340×**.
+
+JSON: [`results/vs_aby3_exact_ks.json`](results/vs_aby3_exact_ks.json),
+[`results/actions_vs_rounds_ks.json`](results/actions_vs_rounds_ks.json),
+[`results-ks/summary.json`](results-ks/summary.json).
 
 ## What `sent_actions` means — are 867 rounds wrong?
 
 **No. 867 is not round depth.** It is a **message-count**, and it is a
-**three-party sum**. The BRPC ~15× wall-clock is still real; it comes from
-SPDZwise using a **ripple-carry adder** (~189 sequential AND rounds) where ABY3
-exact uses a **Kogge-Stone PPA** (~14 AND/rotate rounds), not from 867 vs 52
-as “rounds”.
+**three-party sum**. The figures in this section are the **ripple-carry**
+adder (commits through `6a0260b3`). After the Kogge–Stone switch, trunc is
+**426** actions / **~23** AND rounds (see above); 426 is still a Send sum
+(142/party), not rounds. The BRPC ~15× wall-clock under RCA came from
+~189 sequential AND rounds vs ABY3 exact Kogge-Stone (~14), not from 867 vs
+52 as “rounds”.
 
 ### What the counter actually is
 
@@ -208,18 +273,19 @@ external FM64) is **~8–175×** ABY3 semi at every injected RTT, including ≲1
 | `linear` (128×64 mmul+trunc) | 16.7× | 65.0× | **83.1×** | 14.2× |
 | `a2b` (2048 el) | **2.74×** | 8.40× | **12.0×** | — |
 
-The only ≤5× cell vs ABY3 semi is in-process FactoryMem `a2b` (2.74×), which has
-no TCP and no injected RTT.
+The only ≤5× cell vs ABY3 semi under **RCA** was in-process FactoryMem `a2b`
+(2.74×), which has no TCP and no injected RTT. After Kogge–Stone that cell
+is **9.29×**.
 
 Against **ABY3 exact** truncation (`A2B → ARShiftB → B2A`, the baseline used in
-the branch PPML tables), FactoryMem `trunc` is **3.46×** and FactoryMem `linear`
-is **5.12×**. That matches the branch story that *large* exact-trunc PPML graphs
-can sit near 5× on FactoryMem. Moving the same kernels onto three TCP processes
-and adding LAN-like RTT pushes the exact-trunc ratio to **10–15×** at ≲1 ms and
-**15–18×** at 10 ms. Extra RTT does **not** close the gap to ABY3 semi:
-SPDZwise `trunc` has ~189 sequential AND rounds / 13.0 MiB versus ABY3 semi
-~2 rounds / 56 KiB (5 `sent_actions` 3-party sum), so the wall-clock ratio
-stays around **160×** once latency dominates.
+the branch PPML tables), RCA FactoryMem `trunc` is **3.46×** and FactoryMem
+`linear` is **5.12×**. Kogge–Stone **loses** those FactoryMem cells (15.8× /
+9.3×) because ABFL AND-count rises ~7×. On BRPC, KS **linear** is the only
+kernel that moves toward 5× (**7.81×** @1 ms, **6.25×** @5 ms); `trunc` /
+`a2b` get worse (~26× / ~20×) as 5× more bytes plus ABFL swamp the 189→23
+round cut. Extra RTT does **not** close the gap to ABY3 semi:
+SPDZwise `trunc` is still hundreds of times slower than ABY3 semi
+`TruncAPr2` (~2 rounds / 56 KiB, 5 `sent_actions` 3-party sum).
 
 Tiny single-sample inference (branch PPML 8–13×, compute-bound) was not rerun.
 
@@ -238,7 +304,7 @@ PPML (trunc + matmul-trunc + A2B), which is what those graphs spend their time o
 | Addresses | `10.10.0.{1,2,3}:61540-2` in netns `p0`/`p1`/`p2` |
 | Transport | FactoryMem (in-process) and FactoryBrpc (three processes) |
 | Threads | `YACL_NUM_THREADS=16` (4-core box; branch PPML used 65) |
-| SPDZwise | RING, external FM64, `check_threshold=5_000_000`, default `TruncNaive` |
+| SPDZwise | RING, external FM64, `check_threshold=5_000_000`, default `TruncNaive` (bit-sliced KS A2B) |
 | ABY3 semi | native `trunc_a` / `TruncAPr2` |
 | ABY3 exact | `b2a(arshift_b(a2b(x), 16))` as in the PPML reports |
 | Batch | trunc/a2b: 2048 elements; linear: 128×64 × 64×1; 1 warmup + 3 measured |
@@ -405,6 +471,12 @@ python3 summarize.py results/summary.json -o REPORT.md
 python3 run_sweep.py --skip-mem --output results-1gbit --rate-gbps 1 \
   --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
   --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
+
+# 5. After switching Add() to bit-sliced Kogge-Stone: FactoryMem + BRPC
+#    ~1 ms / ~5 ms with 1 Gbit/s cap
+python3 run_sweep.py --output results-ks --rate-gbps 1 \
+  --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
+  --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
 ```
 
 Single 3-process run without the sweep driver:
@@ -453,6 +525,9 @@ bash netem.sh down
 | `analysis/rtt-sweep/results-5ms-rerun/` | dedicated ~5 ms BRPC re-run |
 | `analysis/rtt-sweep/results-1gbit/` | BRPC ~1 ms / ~5 ms with 1 Gbit/s cap |
 | `analysis/rtt-sweep/results/vs_aby3_exact_1gbit.json` | 1 Gbit/s vs ABY3 exact table |
-| `analysis/rtt-sweep/results/actions_vs_rounds.json` | `sent_actions` vs true round-depth breakdown |
+| `analysis/rtt-sweep/results/actions_vs_rounds.json` | `sent_actions` vs true round-depth breakdown (RCA) |
+| `analysis/rtt-sweep/results/actions_vs_rounds_ks.json` | same breakdown after Kogge–Stone |
+| `analysis/rtt-sweep/results/vs_aby3_exact_ks.json` | FactoryMem / ~1 ms / ~5 ms vs exact after KS |
+| `analysis/rtt-sweep/results-ks/` | KS re-run CSVs + `summary.json` |
 | `analysis/rtt-sweep/measure_tput.py` | 32 MiB TCP probe through the switch |
 | `src/libspu/mpc/spdzwise/benchmarks/mparty_rtt_bench.cc` | SPDZwise / ABY3 / ABY3-exact kernels |

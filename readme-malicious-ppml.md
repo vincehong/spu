@@ -74,7 +74,7 @@ Comparison操作由上层编译器拆解到msb_a2b的操作上，具体实现选
 
 ABFL/post-sacrifice 的 C++ Boolean 原型已实现：三方 replicated XOR sharing、ABY3 online AND、64-bit word 分桶以及最终验证后导出，详见 [Boolean 原型说明](src/libspu/mpc/spdzwise/README.md#abfl-boolean-development-prototype)。正常工厂已启用 RING/FM64，FIELD 仍拒绝执行。
 
-RING/FM64 已实现 split-3 A2B：仅转换 authenticated share 的 value 低 64 位，采用 CSA + bit-sliced RCA，所有秘密 AND 纳入会话最终 ABFL 验证；不转换 MAC share。技术与论文依据见 [SPDZwise README](src/libspu/mpc/spdzwise/README.md#ring-split-3-a2b)，测量见下方 Building Blocks Benchmark。
+RING/FM64 已实现 split-3 A2B：仅转换 authenticated share 的 value 低 64 位，采用 CSA + bit-sliced Kogge–Stone（100K FactoryMem 选型曾保留 RCA；RTT 路径改回 KS），所有秘密 AND 纳入会话最终 ABFL 验证；不转换 MAC share。技术与论文依据见 [SPDZwise README](src/libspu/mpc/spdzwise/README.md#ring-split-3-a2b)，测量见下方 Building Blocks Benchmark。
 
 当前缺口：ABFL 的安全界限及组合审查、恶意安全 daBits、FIELD A2B/B2A、FIELD 截断、FIELD 比较及非线性算子尚未完成；Python 明文规格仅为正确性参照。已有 LR、MLP、Conv/BatchNorm/ReLU 的最小 Python/JAX 小图验证，下方 PPML 性能实测已覆盖完整推理图及单 batch 训练，SPDZwise 全数据集训练尚未运行；客户端完整旧输出包重放防护、真实部署、协议组合安全论证及总失败概率仍待完成。域算术测试通过不等于这些验收已完成。
 
@@ -268,7 +268,7 @@ ABFL 验证约占 SPDZwise 总耗时的 90%，没有省略验证。
 每轮新建上下文并准备新鲜 Boolean RSS。每轮取三方完整计时区间最大值，再统计中位数及范围。
 
 SPDZwise 使用认证随机算术掩码 `r`，经 split-3 A2B 获得 Boolean 掩码，
-用 bit-sliced RCA 计算 `x+r mod 2^64`；完成算术检查和**一次完整 ABFL 检查后**打开结果 `c`，
+用 bit-sliced Kogge–Stone 计算 `x+r mod 2^64`；完成算术检查和**一次完整 ABFL 检查后**打开结果 `c`，
 返回保留 MAC 的算术共享 `c-r`。主计时包含掩码及 MAC 生成、转置、两个转换/加法电路、
 全部内部验证、打开及算术减法。原生 ABY3 为**半诚实 baseline**，调用正常注册的
 `B2ASelector`，完整 64 位输入走其 PPA 路线。

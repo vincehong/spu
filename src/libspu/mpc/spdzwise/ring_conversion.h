@@ -7,7 +7,7 @@
 #include "libspu/mpc/kernel.h"
 
 namespace spu::mpc::spdzwise::ring {
-// Value-only split-3, bit-sliced CSA + ripple-carry addition modulo 2^64.
+// Value-only split-3, bit-sliced CSA + Kogge–Stone addition modulo 2^64.
 // Uses the current ABFL session; final verification remains deferred.
 class A2B final : public UnaryKernel {
  public:

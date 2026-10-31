@@ -232,7 +232,7 @@ TEST(RingConversion, EmptyNeedsNoAndAndSmallCallUsesZeroPadding) {
       Begin(state);
       auto x = state->publicValue(Plain(n).as(makeType<Pub2kTy>(FM64)));
       EXPECT_NO_THROW(state->a2b(x));
-      EXPECT_EQ(state->pendingBooleanBits(), n ? 125 * 64 : 0);
+      EXPECT_EQ(state->pendingBooleanBits(), n ? 718 * 64 : 0);
       EXPECT_NO_THROW(state->finalize());
       EXPECT_EQ(state->pendingBooleanBits(), 0);
       EXPECT_EQ(state->booleanChecks(), n ? 1 : 0);
@@ -465,7 +465,7 @@ TEST(RingConversion, B2ACheckThresholdPreservesOpeningChecksAndGateCounts) {
     EXPECT_EQ(s->arithmeticChecks(), 1);
     EXPECT_GT(s->booleanChecks(), 1);
     EXPECT_EQ(s->pendingBooleanBits(), 0);
-    EXPECT_EQ(ring::ConversionTestAccess::gates(s), 188 * 2 * 64);
+    EXPECT_EQ(ring::ConversionTestAccess::gates(s), 1380 * 2 * 64);
     s->prepareOutputs(&ctx, {"out"}, {y});
     s->commit();
     return s->exportedValue("out").data();
@@ -509,7 +509,7 @@ TEST(RingConversion, B2AWidthsShapesAndAuthenticatedOutput) {
       EXPECT_EQ(state->booleanChecks(), width == 1 ? 0 : 1);
       EXPECT_EQ(state->pendingBooleanBits(), 0);
       EXPECT_EQ(ring::ConversionTestAccess::gates(state),
-                width == 1 ? 0 : 188 * 17 * 64);
+                width == 1 ? 0 : 1380 * 17 * 64);
       state->finalize();
       EXPECT_EQ(state->booleanChecks(), width == 1 ? 0 : 1);
       EXPECT_EQ(state->arithmeticChecks(), 1);
@@ -608,7 +608,7 @@ TEST(RingConversion, B2AEmptyAndSmallCallsWithZeroPadding) {
         EXPECT_EQ(opened, n != 0);
         EXPECT_EQ(state->pendingBooleanBits(), 0);
         EXPECT_EQ(ring::ConversionTestAccess::gates(state),
-                  width == 1 ? 0 : ((n + 63) / 64) * 64 * 188);
+                  width == 1 ? 0 : ((n + 63) / 64) * 64 * 1380);
         EXPECT_EQ(state->booleanChecks(), n && width != 1 ? 1 : 0);
         if (!n) {
           EXPECT_EQ(link->GetStats()->sent_bytes.load(), bytes);

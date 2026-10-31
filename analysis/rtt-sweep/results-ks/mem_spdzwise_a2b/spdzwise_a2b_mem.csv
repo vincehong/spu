@@ -1,0 +1,6 @@
+protocol,op,transport,rank,iteration,count,rows,cols,total_ms,sent_bytes,sent_actions
+[2026-10-31 13:07:21.291] [info] [thread_pool.cc:30] Create a fixed thread pool with size 15
+spdzwise,a2b,mem,0,0,2048,128,64,16.544682,22060704,183
+spdzwise,a2b,mem,0,1,2048,128,64,13.274591,22060704,183
+spdzwise,a2b,mem,0,2,2048,128,64,13.519953,22060704,183
+spdzwise,a2b,mem,0,3,2048,128,64,12.796208,22060704,183
