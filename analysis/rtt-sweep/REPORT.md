@@ -165,6 +165,36 @@ Convention: `--rtt-ms` / `RTT_MS` is the **target ping RTT**. One-way hold is
 The 0 ms row still traverses the userspace switch (no extra hold). FactoryMem
 does not use the switch at all.
 
+### 1 Gbit/s cap (exact commands)
+
+Preferred, if the kernel has TBF (this VM does not:
+`# CONFIG_NET_SCH_TBF is not set`, `# CONFIG_NET_SCH_HTB is not set`):
+
+```sh
+# one qdisc per party host-side veth (full-duplex 1 Gbit/s NIC)
+for i in 0 1 2; do
+  sudo tc qdisc replace dev veth${i}h root tbf rate 1gbit burst 256kb latency 50ms
+done
+```
+
+That fails here with `Specified qdisc kind is unknown`. Working equivalent —
+same veth + netns topology, userspace token bucket in `delay_switch.py`
+(per-party ingress and egress, burst 256 KiB):
+
+```sh
+RATE_GBPS=1 BURST_BYTES=262144 RTT_MS=1 bash analysis/rtt-sweep/netem.sh up
+# → sudo python3 delay_switch.py --one-way-ms 0.5 --rate-gbps 1 --burst-bytes 262144 \
+#      --host-macs <p0,p1,p2 MACs> --ready-file /tmp/spu-rtt/delay-switch.ready
+# sweep wrapper:
+python3 run_sweep.py --skip-mem --output results-1gbit --rate-gbps 1 \
+  --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
+```
+
+`netem.sh` still tries `tc qdisc replace dev lo root tbf rate 1gbit burst 256kb latency 50ms`
+first, then falls back. Probe (32 MiB TCP p0→p1, hold=0): **0.1 → 0.105 Gbit/s**,
+**1.0 → 1.051 Gbit/s**, unlimited **1.734 Gbit/s**. With RTT hold a single stream
+is also window-limited (1 ms **0.97 Gbit/s**, 5 ms **0.24 Gbit/s**).
+
 ## Wall-clock tables
 
 Median of 3 measured iterations (warmup discarded). `sent_bytes` /
@@ -179,8 +209,10 @@ kernel only. Ratios are SPDZwise / ABY3.
 | brpc 0.0 | 0.245 | 95.510 | 0.601 | 9.433 | 158.9× | 10.13× | 13 040 028 / 867 | 57 344 / 5 |
 | brpc 0.5 | 0.841 | 183.586 | 1.053 | 13.997 | 174.3× | 13.12× | 13 040 028 / 867 | 57 344 / 5 |
 | brpc 1.0 | 1.343 | 256.991 | 1.903 | 16.990 | 135.1× | 15.13× | 13 040 028 / 867 | 57 344 / 5 |
+| **brpc 1.0 + 1 Gbit/s** | 1.360 | 246.494 | 1.470 | 16.385 | 167.7× | **15.04×** | 13 040 028 / 867 | 57 344 / 5 |
 | brpc 2.0 | 2.384 | 405.355 | 2.438 | 25.580 | 166.3× | 15.85× | 13 040 028 / 867 | 57 344 / 5 |
 | brpc 5.0 | 5.444 | 952.456 | 5.838 | 54.235 | 163.1× | 17.56× | 13 040 028 / 867 | 57 344 / 5 |
+| **brpc 5.0 + 1 Gbit/s** | 5.441 | 941.420 | 5.920 | 53.555 | 159.0× | **17.58×** | 13 040 028 / 867 | 57 344 / 5 |
 | brpc 10.0 | 10.514 | 1797.067 | 11.087 | 99.910 | 162.1× | 17.99× | 13 040 028 / 867 | 57 344 / 5 |
 
 ABY3 exact bytes/actions: 1 441 792 / 52 (constant across settings).
@@ -193,8 +225,10 @@ ABY3 exact bytes/actions: 1 441 792 / 52 (constant across settings).
 | brpc 0.0 | 0.245 | 47.723 | 0.734 | 3.728 | 65.0× | 12.80× | 1 328 466 / 882 | 6 656 / 8 |
 | brpc 0.5 | 0.841 | 112.453 | 1.342 | 7.982 | 83.8× | 14.09× | 1 328 466 / 882 | 6 656 / 8 |
 | brpc 1.0 | 1.343 | 177.004 | 2.129 | 12.443 | 83.1× | 14.23× | 1 328 466 / 882 | 6 656 / 8 |
+| **brpc 1.0 + 1 Gbit/s** | 1.360 | 175.341 | 1.996 | 12.134 | 87.8× | **14.45×** | 1 328 466 / 882 | 6 656 / 8 |
 | brpc 2.0 | 2.384 | 322.450 | 3.700 | 22.216 | 87.2× | 14.51× | 1 328 466 / 882 | 6 656 / 8 |
 | brpc 5.0 | 5.444 | 779.772 | 8.414 | 53.969 | 92.7× | 14.45× | 1 328 466 / 882 | 6 656 / 8 |
+| **brpc 5.0 + 1 Gbit/s** | 5.441 | 776.665 | 9.215 | 53.143 | 84.3× | **14.62×** | 1 328 466 / 882 | 6 656 / 8 |
 | brpc 10.0 | 10.514 | 1498.310 | 16.216 | 102.316 | 92.4× | 14.64× | 1 328 466 / 882 | 6 656 / 8 |
 
 ### `a2b` (2048 elements)
@@ -205,11 +239,15 @@ ABY3 exact bytes/actions: 1 441 792 / 52 (constant across settings).
 | brpc 0.0 | 0.245 | 44.963 | 5.351 | 8.40× | 5 092 032 / 369 | 688 128 / 24 |
 | brpc 0.5 | 0.841 | 72.929 | 6.994 | 10.43× | 5 092 032 / 369 | 688 128 / 24 |
 | brpc 1.0 | 1.343 | 94.747 | 7.890 | 12.01× | 5 092 032 / 369 | 688 128 / 24 |
+| **brpc 1.0 + 1 Gbit/s** | 1.360 | 99.382 | 8.221 | **12.09×** | 5 092 032 / 369 | 688 128 / 24 |
 | brpc 2.0 | 2.384 | 169.734 | 13.741 | 12.35× | 5 092 032 / 369 | 688 128 / 24 |
 | brpc 5.0 | 5.444 | 353.367 | 24.664 | 14.33× | 5 092 032 / 369 | 688 128 / 24 |
+| **brpc 5.0 + 1 Gbit/s** | 5.441 | 362.289 | 25.445 | **14.24×** | 5 092 032 / 369 | 688 128 / 24 |
 | brpc 10.0 | 10.514 | 674.939 | 45.551 | 14.82× | 5 092 032 / 369 | 688 128 / 24 |
 
-Raw per-run CSVs and `summary.json` live under `analysis/rtt-sweep/results/`.
+Uncapped BRPC rows are from `results/summary.json`. **1 Gbit/s** rows are the
+dedicated re-run in `results-1gbit/` (FactoryMem is unchanged — no TCP). Raw
+per-run CSVs live next to those summaries.
 
 ## How this branch launches 3PC locally
 
@@ -252,12 +290,18 @@ python3 run_sweep.py --output results \
   --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
   --rtt-ms 0,0.5,1,2,5,10 --ops trunc,linear,a2b
 python3 summarize.py results/summary.json -o REPORT.md
+
+# 4. 1 Gbit/s cap + ~1 ms / ~5 ms BRPC (tc tbf unavailable → userspace bucket)
+python3 run_sweep.py --skip-mem --output results-1gbit --rate-gbps 1 \
+  --count 2048 --reps 3 --rows 128 --cols 64 --threads 16 \
+  --rtt-ms 1,5 --ops trunc,linear,a2b --protocols spdzwise,aby3-exact,aby3
 ```
 
 Single 3-process run without the sweep driver:
 
 ```sh
-RTT_MS=1 bash netem.sh up          # target ping RTT = 1ms; one-way hold = 0.5ms
+RTT_MS=1 RATE_GBPS=1 BURST_BYTES=262144 bash netem.sh up
+# target ping RTT = 1ms; one-way hold = 0.5ms; 1 Gbit/s per-party token bucket
 PROTOCOL=spdzwise OP=linear TRANSPORT=brpc COUNT=2048 REPS=3 ROWS=128 COLS=64 \
   PARTIES=10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542 \
   YACL_NUM_THREADS=16 bash run_3pc.sh
@@ -266,9 +310,11 @@ bash netem.sh down
 
 ## Blockers / caveats
 
-- **No `tc netem`** (`CONFIG_NET_SCH_NETEM` is not set). Userspace L2 delay is
-  the documented fallback; measured ping tracks the target within ~0.3–0.8 ms
-  plus switch overhead (~0.25 ms at hold=0).
+- **No `tc netem` / `tbf` / `htb`** (`CONFIG_NET_SCH_{NETEM,TBF,HTB}` unset).
+  Userspace L2 delay + token bucket is the documented fallback; measured ping
+  tracks the target within ~0.3–0.8 ms plus switch overhead (~0.25 ms at hold=0).
+  The 1 Gbit/s cap is verified at hold=0 (1.051 Gbit/s); with RTT hold a single
+  TCP stream is also window-limited.
 - **No Python PPML** on this VM (no `spu` extension, no JAX; `benchmark_ppml.py`
   missing from the tree). Ratios are kernel proxies, not full LR/DNN/ResNet
   graphs. The branch FactoryMem PPML table (vs ABY3 exact) remains the best
@@ -290,7 +336,7 @@ bash netem.sh down
 | `analysis/rtt-sweep/run_3pc.sh` | 1 or 3 processes, optional `ip netns exec` |
 | `analysis/rtt-sweep/netem.sh` | try `tc netem`, else veth+switch |
 | `analysis/rtt-sweep/setup_veth.sh` | 3 netns + veth, offloads off |
-| `analysis/rtt-sweep/delay_switch.py` | AF_PACKET one-way hold |
+| `analysis/rtt-sweep/delay_switch.py` | AF_PACKET one-way hold + optional per-party token bucket |
 | `analysis/rtt-sweep/summarize.py` | tables from `summary.json` |
 | `analysis/rtt-sweep/results/` | original sweep CSVs + `summary.json` |
 | `analysis/rtt-sweep/results/vs_aby3_exact.json` | FactoryMem / ~1 ms / ~5 ms vs ABY3 exact |
