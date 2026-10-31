@@ -4,6 +4,54 @@
 (`opt B2A with width=1 and add PPML benchmark results`, `duan/codex/spdzwise-3pc`).
 This work is **not** based on `vincehong/spu` `main`.
 
+## SPDZwise RING vs ABY3 exact at 1 Gbit/s
+
+**≤5× vs ABY3 exact still does not hold** with each party link capped at
+**1 Gbit/s** plus LAN-like RTT.
+
+This kernel has `# CONFIG_NET_SCH_TBF is not set` and
+`# CONFIG_NET_SCH_HTB is not set`, so the preferred command
+
+```sh
+sudo tc qdisc replace dev veth0h root tbf rate 1gbit burst 256kb latency 50ms
+```
+
+fails with `Specified qdisc kind is unknown`. The working equivalent is the
+existing veth + `delay_switch.py` token bucket (per-party full-duplex ingress
+and egress, burst 256 KiB):
+
+```sh
+RATE_GBPS=1 RTT_MS=1 bash analysis/rtt-sweep/netem.sh up
+# delay_switch.py --one-way-ms 0.5 --rate-gbps 1 --burst-bytes 262144
+```
+
+Shaper check (32 MiB TCP p0→p1, RTT hold = 0): **0.1 Gbit/s → 0.105 Gbit/s**,
+**1.0 → 1.051 Gbit/s**, unlimited path **1.734 Gbit/s**. With RTT hold, a single
+stream is also window-limited (1 ms probe **0.97 Gbit/s**, 5 ms probe
+**0.24 Gbit/s**).
+
+Dedicated BRPC re-run (1 warmup + 3 measured). FactoryMem is the previous
+in-process reference (no TCP, so neither RTT nor the 1 Gbit/s cap apply).
+ABY3 exact = `A2B → ARShiftB → B2A`. `a2b` is vs native ABY3 A2B.
+
+| kernel | FactoryMem vs exact | **BRPC ~1 ms + 1 Gbit/s vs exact** | **BRPC ~5 ms + 1 Gbit/s vs exact** |
+| --- | ---: | ---: | ---: |
+| `trunc` 2048 el | 3.46× | **15.04×** (246.5 / 16.4 ms) | **17.58×** (941.4 / 53.6 ms) |
+| `linear` 128×64 mmul+trunc | 5.12× | **14.45×** (175.3 / 12.1 ms) | **14.62×** (776.7 / 53.1 ms) |
+| `a2b` vs native ABY3 A2B | 2.74× | **12.09×** (99.4 / 8.2 ms) | **14.24×** (362.3 / 25.4 ms) |
+
+Measured ping: **1.36 ms** / **5.44 ms**. Bytes/actions unchanged (`trunc`
+13 040 028 / 867 vs exact 1 441 792 / 52). ABY3 semi at 1 ms+1 Gbit/s is
+still ~168× on `trunc` (246.5 / 1.47 ms) — kept because it is cheap.
+
+Capping at 1 Gbit/s does **not** move the exact-trunc ratio: these kernels are
+round-dominated (867 vs 52 actions on `trunc`), and the uncapped veth path was
+only ~1.7 Gbit/s. Ratios match the earlier uncapped 1 ms / 5 ms tables
+(15.1× / 17.5× on `trunc`). The ≤5× exact budget remains FactoryMem-only.
+
+JSON: [`results/vs_aby3_exact_1gbit.json`](results/vs_aby3_exact_1gbit.json),
+[`results-1gbit/summary.json`](results-1gbit/summary.json).
+
 ## SPDZwise RING vs ABY3 exact at ~5 ms
 
 **≤5× vs ABY3 exact does not hold at ~5 ms RTT on 3-process FactoryBrpc.**
@@ -244,5 +292,10 @@ bash netem.sh down
 | `analysis/rtt-sweep/setup_veth.sh` | 3 netns + veth, offloads off |
 | `analysis/rtt-sweep/delay_switch.py` | AF_PACKET one-way hold |
 | `analysis/rtt-sweep/summarize.py` | tables from `summary.json` |
-| `analysis/rtt-sweep/results/` | CSVs + `summary.json` |
+| `analysis/rtt-sweep/results/` | original sweep CSVs + `summary.json` |
+| `analysis/rtt-sweep/results/vs_aby3_exact.json` | FactoryMem / ~1 ms / ~5 ms vs ABY3 exact |
+| `analysis/rtt-sweep/results-5ms-rerun/` | dedicated ~5 ms BRPC re-run |
+| `analysis/rtt-sweep/results-1gbit/` | BRPC ~1 ms / ~5 ms with 1 Gbit/s cap |
+| `analysis/rtt-sweep/results/vs_aby3_exact_1gbit.json` | 1 Gbit/s vs ABY3 exact table |
+| `analysis/rtt-sweep/measure_tput.py` | 32 MiB TCP probe through the switch |
 | `src/libspu/mpc/spdzwise/benchmarks/mparty_rtt_bench.cc` | SPDZwise / ABY3 / ABY3-exact kernels |

@@ -79,9 +79,10 @@ def ping_rtt(dest: str, source: str | None = None) -> dict:
     return {"dest": dest, "source": source, "avg_ms": avg, "raw": text}
 
 
-def set_delay(rtt_ms: float) -> dict:
+def set_delay(rtt_ms: float, rate_gbps: float = 0.0) -> dict:
     env = os.environ.copy()
     env["RTT_MS"] = str(rtt_ms)
+    env["RATE_GBPS"] = str(rate_gbps)
     run(["bash", str(HERE / "netem.sh"), "up"], env=env)
     backend = Path("/tmp/spu-rtt/backend.txt")
     if not backend.exists():
@@ -104,12 +105,27 @@ def set_delay(rtt_ms: float) -> dict:
     else:
         measured = ping_rtt("127.0.0.1")
         parties = "127.0.0.1:61540,127.0.0.1:61541,127.0.0.1:61542"
+    tput = None
+    tput_path = Path("/tmp/spu-rtt/tput.txt")
+    if tput_path.exists():
+        first = tput_path.read_text().split()
+        try:
+            tput = {
+                "gbps": float(first[0]),
+                "bytes": int(first[1]),
+                "seconds": float(first[2]),
+                "raw": tput_path.read_text(),
+            }
+        except (IndexError, ValueError):
+            tput = {"raw": tput_path.read_text()}
     return {
         "target_rtt_ms": rtt_ms,
         "one_way_ms": rtt_ms / 2.0,
+        "rate_gbps": rate_gbps,
         "backend": info.strip(),
         "measured_ping": measured,
         "parties": parties,
+        "measured_tput": tput,
     }
 
 
@@ -191,6 +207,12 @@ def main():
         default="",
         help="Optional comma-separated protocol filter (spdzwise,aby3,aby3-exact)",
     )
+    parser.add_argument(
+        "--rate-gbps",
+        type=float,
+        default=0.0,
+        help="Per-party full-duplex cap in Gbit/s (0 = unlimited). 1 = 1 Gbit/s.",
+    )
     args = parser.parse_args()
     rtts = [float(x) for x in args.rtt_ms.split(",") if x.strip()]
     ops = [x.strip() for x in args.ops.split(",") if x.strip()]
@@ -237,7 +259,7 @@ def main():
         if not args.skip_brpc:
             for rtt in rtts:
                 print(f"=== RTT target {rtt} ms ===", flush=True)
-                delay = set_delay(rtt)
+                delay = set_delay(rtt, args.rate_gbps)
                 lo_parties = "127.0.0.1:61540,127.0.0.1:61541,127.0.0.1:61542"
                 parties = delay["parties"]
                 # RTT 0 uses loopback without the delay switch if the backend
@@ -247,14 +269,19 @@ def main():
                 for op in ops:
                     for protocol in protocols[op]:
                         dest = out / f"rtt{rtt}_{protocol}_{op}"
+                        if args.rate_gbps:
+                            dest = out / f"rtt{rtt}_{args.rate_gbps:g}g_{protocol}_{op}"
                         dest.mkdir(exist_ok=True)
                         print(f"=== brpc {protocol} {op} rtt={rtt} ===", flush=True)
                         record = run_one(args.bin, dest, protocol, op, "brpc",
                                          parties, args)
-                        record["setting"] = f"brpc-rtt-{rtt}ms"
+                        tag = f"brpc-rtt-{rtt}ms"
+                        if args.rate_gbps:
+                            tag += f"-{args.rate_gbps:g}g"
+                        record["setting"] = tag
                         record.update({k: delay[k] for k in
-                                       ("target_rtt_ms", "one_way_ms", "backend",
-                                        "measured_ping")})
+                                       ("target_rtt_ms", "one_way_ms", "rate_gbps",
+                                        "backend", "measured_ping", "measured_tput")})
                         summary["runs"].append(record)
                         (out / "summary.json").write_text(
                             json.dumps(summary, indent=2, default=str) + "\n"

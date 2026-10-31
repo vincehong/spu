@@ -10,3 +10,8 @@ results-5ms-rerun/**/*.pid
 results-5ms-rerun/**/*.stdout
 results-5ms-rerun/**/harness.stderr
 results-5ms-rerun/**/harness.stdout
+results-1gbit/**/*.log
+results-1gbit/**/*.pid
+results-1gbit/**/*.stdout
+results-1gbit/**/harness.stderr
+results-1gbit/**/harness.stdout

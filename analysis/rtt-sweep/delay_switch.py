@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Userspace L2 delay switch for three veth pairs.
+"""Userspace L2 delay + rate-limit switch for three veth pairs.
 
-This kernel has CONFIG_NET_SCH_NETEM=n, so tc/netem cannot inject latency.
-Each party process binds the host side of a veth (veth{0,1,2}h). This program
-reads Ethernet frames on the switch side (veth{0,1,2}s), holds them for a
-configured one-way delay, then writes them to the destination party's switch
-side.
+This kernel has CONFIG_NET_SCH_NETEM=n and CONFIG_NET_SCH_{HTB,TBF}=n, so
+neither `tc netem` nor `tc tbf`/`htb` can shape the path. Each party process
+binds the host side of a veth (veth{0,1,2}h). This program reads Ethernet
+frames on the switch side (veth{0,1,2}s), holds them for a configured one-way
+delay, then writes them to the destination party's switch side.
 
 Ping / TCP RTT is approximately 2 * one-way delay (request delayed once,
 reply delayed once), matching `tc qdisc add dev ... netem delay <one-way>`.
+
+Optional `--rate-gbps` applies a token bucket per party interface in both
+directions (switch ingress from that party and switch egress to that party),
+matching `tc qdisc add dev <veth> root tbf rate <N>gbit` on each end of a
+full-duplex 1 Gbit/s NIC.
 """
 
 from __future__ import annotations
@@ -73,7 +78,45 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated MACs for the three party host-side NICs (preferred with netns)",
     )
     p.add_argument("--ready-file", default="", help="Create this file once sockets are bound")
+    p.add_argument(
+        "--rate-gbps",
+        type=float,
+        default=0.0,
+        help="Per-party full-duplex cap in Gbit/s (0 = unlimited). 1.0 = 1 Gbit/s.",
+    )
+    p.add_argument(
+        "--burst-bytes",
+        type=int,
+        default=262144,
+        help="Token-bucket burst in bytes (default 256 KiB, ~TBF burst 2mbit)",
+    )
     return p.parse_args()
+
+
+class TokenBucket:
+    """Byte token bucket. rate_bps is bits/s; burst is bytes."""
+
+    def __init__(self, rate_bps: float, burst_bytes: int):
+        self.rate_Bps = rate_bps / 8.0
+        self.burst = float(max(burst_bytes, 1))
+        self.tokens = self.burst
+        self.t = time.monotonic()
+
+    def schedule(self, nbytes: int, now: float) -> float:
+        if self.rate_Bps <= 0:
+            return now
+        need = float(max(nbytes, 1))
+        # If the pipe is already booked into the future, do not rewind it.
+        if now > self.t:
+            self.tokens = min(self.burst, self.tokens + (now - self.t) * self.rate_Bps)
+            self.t = now
+        if self.tokens >= need:
+            self.tokens -= need
+            return self.t
+        wait = (need - self.tokens) / self.rate_Bps
+        self.tokens = 0.0
+        self.t += wait
+        return self.t
 
 
 def open_raw(iface: str) -> socket.socket:
@@ -128,12 +171,17 @@ def main() -> int:
         print("need exactly three ifaces/ips/macs", file=sys.stderr)
         return 2
     delay = max(0.0, args.one_way_ms) / 1000.0
+    rate_bps = max(0.0, args.rate_gbps) * 1_000_000_000.0
     ip_to_idx = {ip4(ip): i for i, ip in enumerate(ips)}
     host_ips = [ip4(ip) for ip in ips]
     socks = [open_raw(name) for name in ifaces]
     fd_to_idx = {s.fileno(): i for i, s in enumerate(socks)}
+    # Per-party ingress (from party) and egress (to party) buckets.
+    ingress = [TokenBucket(rate_bps, args.burst_bytes) for _ in range(3)]
+    egress = [TokenBucket(rate_bps, args.burst_bytes) for _ in range(3)]
     print(
         f"delay_switch one-way={args.one_way_ms}ms (expected ping RTT ~ {2 * args.one_way_ms}ms) "
+        f"rate_gbps={args.rate_gbps} burst_bytes={args.burst_bytes} "
         f"ifaces={ifaces} ips={ips}",
         flush=True,
     )
@@ -164,13 +212,19 @@ def main() -> int:
                 if reply is not None:
                     # ARP replies are local control; delay them like data so
                     # connection setup sees the same one-way latency.
-                    heapq.heappush(heap, (now + delay, seq, src, reply))
+                    due = now + delay
+                    due = max(due, ingress[src].schedule(len(reply), now))
+                    due = max(due, egress[src].schedule(len(reply), now))
+                    heapq.heappush(heap, (due, seq, src, reply))
                     seq += 1
                 continue
             dst = dest_index(frame, ip_to_idx)
             if dst is None or dst == src:
                 continue
-            heapq.heappush(heap, (now + delay, seq, dst, frame))
+            due = now + delay
+            due = max(due, ingress[src].schedule(len(frame), now))
+            due = max(due, egress[dst].schedule(len(frame), now))
+            heapq.heappush(heap, (due, seq, dst, frame))
             seq += 1
         now = time.monotonic()
         while heap and heap[0][0] <= now:

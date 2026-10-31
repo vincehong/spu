@@ -1,0 +1,505 @@
+{
+  "started_at": "2026-10-31T12:45:28.626684+00:00",
+  "host": "Linux cursor 6.12.94+ #1 SMP PREEMPT_DYNAMIC Tue Oct 27 12:38:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux",
+  "git": "f229a0c838927b6a208fc7e2354dab9c16ac2338",
+  "args": {
+    "bin": "/workspace/src/libspu/mpc/spdzwise/benchmarks/bazel-bin/mparty_rtt_bench",
+    "output": "/workspace/analysis/rtt-sweep/results-1gbit",
+    "count": 2048,
+    "reps": 3,
+    "rows": 128,
+    "cols": 64,
+    "threads": 16,
+    "timeout_sec": 180,
+    "rtt_ms": "1,5",
+    "ops": "trunc,linear,a2b",
+    "skip_mem": true,
+    "skip_brpc": false,
+    "protocols": "spdzwise,aby3-exact,aby3",
+    "rate_gbps": 1.0
+  },
+  "note": "SPDZwise RING internally uses Z_2^128 with external FM64. ABY3 is semi-honest; aby3-exact uses A2B/ARShiftB/B2A truncation as in the branch PPML reports. Tiny single-sample inference is omitted.",
+  "runs": [
+    {
+      "protocol": "spdzwise",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 5.949167730000227,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_spdzwise_trunc/spdzwise_trunc.csv",
+      "n": 3,
+      "median_ms": 246.494,
+      "min_ms": 246.055841,
+      "max_ms": 247.562,
+      "sent_bytes": 13040028,
+      "sent_actions": 867,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.740260042000045,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_aby3_trunc/aby3_trunc.csv",
+      "n": 3,
+      "median_ms": 1.47,
+      "min_ms": 1.374,
+      "max_ms": 1.492029,
+      "sent_bytes": 57344,
+      "sent_actions": 5,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "aby3-exact",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.741793171000609,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_aby3-exact_trunc/aby3-exact_trunc.csv",
+      "n": 3,
+      "median_ms": 16.385,
+      "min_ms": 16.368,
+      "max_ms": 17.503,
+      "sent_bytes": 1441792,
+      "sent_actions": 52,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "spdzwise",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 5.54607420100001,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_spdzwise_linear/spdzwise_linear.csv",
+      "n": 3,
+      "median_ms": 175.341,
+      "min_ms": 173.926,
+      "max_ms": 175.506885,
+      "sent_bytes": 1328466,
+      "sent_actions": 882,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.739994655000373,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_aby3_linear/aby3_linear.csv",
+      "n": 3,
+      "median_ms": 1.996,
+      "min_ms": 1.99,
+      "max_ms": 2.106,
+      "sent_bytes": 6656,
+      "sent_actions": 8,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "aby3-exact",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.742515891999574,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_aby3-exact_linear/aby3-exact_linear.csv",
+      "n": 3,
+      "median_ms": 12.134,
+      "min_ms": 11.896,
+      "max_ms": 12.543,
+      "sent_bytes": 93184,
+      "sent_actions": 55,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "spdzwise",
+      "op": "a2b",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 5.1438480970000455,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_spdzwise_a2b/spdzwise_a2b.csv",
+      "n": 3,
+      "median_ms": 99.382,
+      "min_ms": 97.12323,
+      "max_ms": 99.627603,
+      "sent_bytes": 5092032,
+      "sent_actions": 369,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "a2b",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.742878317999384,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt1.0_1g_aby3_a2b/aby3_a2b.csv",
+      "n": 3,
+      "median_ms": 8.221,
+      "min_ms": 7.806452,
+      "max_ms": 8.343,
+      "sent_bytes": 688128,
+      "sent_actions": 24,
+      "setting": "brpc-rtt-1.0ms-1g",
+      "target_rtt_ms": 1.0,
+      "one_way_ms": 0.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=0.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 1.36
+      },
+      "measured_tput": {
+        "gbps": 0.9723,
+        "bytes": 33554432,
+        "seconds": 0.276078
+      }
+    },
+    {
+      "protocol": "spdzwise",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 9.368703484000434,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_spdzwise_trunc/spdzwise_trunc.csv",
+      "n": 3,
+      "median_ms": 941.42,
+      "min_ms": 935.919,
+      "max_ms": 945.134,
+      "sent_bytes": 13040028,
+      "sent_actions": 867,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.741287062000083,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_aby3_trunc/aby3_trunc.csv",
+      "n": 3,
+      "median_ms": 5.920281,
+      "min_ms": 5.764,
+      "max_ms": 8.274,
+      "sent_bytes": 57344,
+      "sent_actions": 5,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "aby3-exact",
+      "op": "trunc",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.941152658000647,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_aby3-exact_trunc/aby3-exact_trunc.csv",
+      "n": 3,
+      "median_ms": 53.555,
+      "min_ms": 51.895,
+      "max_ms": 53.944,
+      "sent_bytes": 1441792,
+      "sent_actions": 52,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "spdzwise",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 8.962929723999878,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_spdzwise_linear/spdzwise_linear.csv",
+      "n": 3,
+      "median_ms": 776.665,
+      "min_ms": 774.649893,
+      "max_ms": 776.825,
+      "sent_bytes": 1328466,
+      "sent_actions": 882,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.944114889000048,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_aby3_linear/aby3_linear.csv",
+      "n": 3,
+      "median_ms": 9.215,
+      "min_ms": 8.851,
+      "max_ms": 9.362794,
+      "sent_bytes": 6656,
+      "sent_actions": 8,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "aby3-exact",
+      "op": "linear",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 5.1430979839997235,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_aby3-exact_linear/aby3-exact_linear.csv",
+      "n": 3,
+      "median_ms": 53.143,
+      "min_ms": 52.898,
+      "max_ms": 53.872,
+      "sent_bytes": 93184,
+      "sent_actions": 55,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "spdzwise",
+      "op": "a2b",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 6.750185189999684,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_spdzwise_a2b/spdzwise_a2b.csv",
+      "n": 3,
+      "median_ms": 362.289,
+      "min_ms": 354.304584,
+      "max_ms": 379.477,
+      "sent_bytes": 5092032,
+      "sent_actions": 369,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    },
+    {
+      "protocol": "aby3",
+      "op": "a2b",
+      "transport": "brpc",
+      "parties": "10.10.0.1:61540,10.10.0.2:61541,10.10.0.3:61542",
+      "returncode": 0,
+      "harness_seconds": 4.942489437000404,
+      "csv": "/workspace/analysis/rtt-sweep/results-1gbit/rtt5.0_1g_aby3_a2b/aby3_a2b.csv",
+      "n": 3,
+      "median_ms": 25.445,
+      "min_ms": 25.002,
+      "max_ms": 25.506429,
+      "sent_bytes": 688128,
+      "sent_actions": 24,
+      "setting": "brpc-rtt-5.0ms-1g",
+      "target_rtt_ms": 5.0,
+      "one_way_ms": 2.5,
+      "rate_gbps": 1.0,
+      "backend": "NETEM_BACKEND=veth-netns-userspace one-way-ms=2.5 rate-gbps=1.0 burst-bytes=262144",
+      "measured_ping": {
+        "dest": "10.10.0.2",
+        "source": "p0",
+        "avg_ms": 5.441
+      },
+      "measured_tput": {
+        "gbps": 0.2353,
+        "bytes": 33554432,
+        "seconds": 1.140974
+      }
+    }
+  ],
+  "finished_at": "2026-10-31T12:47:30.234271+00:00"
+}
